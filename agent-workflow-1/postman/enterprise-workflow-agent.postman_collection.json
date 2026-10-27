@@ -1,0 +1,65 @@
+{
+  "info": {
+    "name": "Enterprise Workflow Agent",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "taskId", "value": "replace-after-create" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/health" }
+    },
+    {
+      "name": "Create read-only shipment task",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-User-Id", "value": "alice" },
+          { "key": "X-Role", "value": "CUSTOMER_SERVICE" },
+          { "key": "Idempotency-Key", "value": "postman-read-1" }
+        ],
+        "body": { "mode": "raw", "raw": "{\"request\":\"查询订单 ORD-1001 的物流\"}" },
+        "url": "{{baseUrl}}/api/v1/tasks"
+      }
+    },
+    {
+      "name": "Create refund waiting for approval",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-User-Id", "value": "alice" },
+          { "key": "X-Role", "value": "CUSTOMER_SERVICE" },
+          { "key": "Idempotency-Key", "value": "postman-refund-1" }
+        ],
+        "body": { "mode": "raw", "raw": "{\"request\":\"退款 ORD-1001 金额 20\"}" },
+        "url": "{{baseUrl}}/api/v1/tasks"
+      }
+    },
+    {
+      "name": "Approve refund",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-User-Id", "value": "manager" },
+          { "key": "X-Role", "value": "SUPERVISOR" }
+        ],
+        "body": { "mode": "raw", "raw": "{\"reason\":\"符合模拟政策\"}" },
+        "url": "{{baseUrl}}/api/v1/tasks/{{taskId}}/approve"
+      }
+    },
+    {
+      "name": "Task events",
+      "request": {
+        "method": "GET",
+        "header": [ { "key": "X-User-Id", "value": "manager" }, { "key": "X-Role", "value": "SUPERVISOR" } ],
+        "url": "{{baseUrl}}/api/v1/tasks/{{taskId}}/events"
+      }
+    }
+  ]
+}

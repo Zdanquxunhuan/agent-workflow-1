@@ -1,0 +1,126 @@
+openapi: 3.0.3
+info:
+  title: Enterprise Workflow Agent API
+  version: 0.1.0
+  description: Simulated after-sales workflow Agent with server-side approval and audit controls.
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/v1/health:
+    get:
+      responses:
+        '200': { description: Service is healthy }
+  /api/v1/tasks:
+    post:
+      summary: Create a constrained workflow task
+      parameters:
+        - { in: header, name: X-User-Id, required: true, schema: { type: string } }
+        - { in: header, name: X-Role, required: false, schema: { type: string, default: CUSTOMER_SERVICE } }
+        - { in: header, name: Idempotency-Key, required: false, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTaskRequest' }
+      responses:
+        '201': { description: Task created }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/tasks/{taskId}:
+    get:
+      summary: Get task state and steps
+      parameters: [{ $ref: '#/components/parameters/TaskId' }, { $ref: '#/components/parameters/UserId' }]
+      responses:
+        '200': { description: Task state }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/tasks/{taskId}/approve:
+    post:
+      summary: Approve a high-risk simulated action
+      parameters: [{ $ref: '#/components/parameters/TaskId' }, { $ref: '#/components/parameters/UserId' }]
+      responses:
+        '200': { description: Approved and executed at most once }
+        '403': { description: Supervisor or admin role required }
+  /api/v1/tasks/{taskId}/reject:
+    post:
+      summary: Reject a high-risk action without executing it
+      parameters: [{ $ref: '#/components/parameters/TaskId' }, { $ref: '#/components/parameters/UserId' }]
+      responses:
+        '200': { description: Task cancelled }
+  /api/v1/tasks/{taskId}/cancel:
+    post:
+      summary: Cancel an active task
+      parameters: [{ $ref: '#/components/parameters/TaskId' }, { $ref: '#/components/parameters/UserId' }]
+      responses:
+        '200': { description: Task cancelled }
+  /api/v1/tasks/{taskId}/resume:
+    post:
+      summary: Resume a checkpointed read-only suffix
+      parameters: [{ $ref: '#/components/parameters/TaskId' }, { $ref: '#/components/parameters/UserId' }]
+      responses:
+        '200': { description: Recovered task state }
+        '409': { description: Recovery is unsafe or task is not recoverable }
+  /api/v1/tasks/{taskId}/events:
+    get:
+      summary: List the audit timeline
+      parameters: [{ $ref: '#/components/parameters/TaskId' }, { $ref: '#/components/parameters/UserId' }]
+      responses:
+        '200': { description: Ordered audit events }
+  /api/v1/agent/chat:
+    post:
+      summary: Multi-round read-only Tool Calling chat
+      parameters:
+        - { $ref: '#/components/parameters/UserId' }
+        - { in: header, name: X-Role, required: false, schema: { type: string, default: CUSTOMER_SERVICE } }
+        - { in: header, name: Idempotency-Key, required: false, schema: { type: string, maxLength: 256 } }
+        - { in: header, name: X-Trace-Id, required: false, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChatRequest' }
+      responses:
+        '200':
+          description: Final answer with taskId, rounds, executed read-only tools, and an auditable task timeline
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/ToolChatResult' }
+components:
+  parameters:
+    TaskId: { in: path, name: taskId, required: true, schema: { type: string, format: uuid } }
+    UserId: { in: header, name: X-User-Id, required: true, schema: { type: string } }
+  schemas:
+    CreateTaskRequest:
+      type: object
+      required: [request]
+      properties:
+        request: { type: string, maxLength: 2000 }
+    ChatRequest:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string, maxLength: 2000 }
+    ToolChatResult:
+      type: object
+      required: [taskId, answer, rounds, executedTools]
+      properties:
+        taskId: { type: string, format: uuid }
+        answer: { type: string }
+        rounds: { type: integer, minimum: 1 }
+        executedTools:
+          type: array
+          items: { type: string }
+    ApiResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        data: { type: object, nullable: true }
+        errorCode: { type: string, nullable: true }
+        message: { type: string, nullable: true }
+        traceId: { type: string }
+  responses:
+    BadRequest: { description: Invalid request or plan }
+    NotFound: { description: Task not found }
