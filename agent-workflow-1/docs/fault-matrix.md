@@ -10,7 +10,7 @@
 | Parameter/permission failure | Task fails before tool side effect | No | Correct request or role | 通过边界测试 |
 | Approval rejected | Task becomes `CANCELLED` | No | Record reason; create a new task only if policy allows | 代码路径具备，黑盒待演练 |
 | Duplicate approval | Original terminal result returned | No | No operator action | 通过重复审批测试 |
-| Database unavailable | JDBC application fails readiness/startup; no silent memory fallback | No blind retry | Restore PostgreSQL/Flyway, then restart and inspect recovery events | Compose 待执行 |
+| Database unavailable | JDBC application fails readiness/startup; no silent memory fallback | No blind retry | Restore MySQL/Flyway, then restart and inspect recovery events | 本地 MySQL 已演练 |
 | Process restart with JDBC | Interrupted `RUNNING` task becomes `RECOVERY_REQUIRED`; only a supervisor/admin can resume a safe read-only suffix | No automatic write replay | Inspect external side effects before any manual recovery | 内存恢复测试通过，JDBC 待容器验收 |
 | Prompt injection | Plan rejected before model/tool execution | No | Preserve request and traceId; create a new task after policy fix | 通过注入测试 |
 | Write result without simulation marker | Result rejected; task does not become successful | No | Investigate tool contract and external result | 通过结果校验测试 |

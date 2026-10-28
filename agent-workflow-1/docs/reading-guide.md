@@ -19,7 +19,7 @@
 
 ## 第一步：先看请求入口
 
-从 [TaskController.java](../src/main/java/com/yu/agent/workflow/api/TaskController.java) 开始，理解请求头中的 `X-User-Id`、`X-Role`、`Idempotency-Key` 和 `X-Trace-Id`。再看 [ApiResponse.java](../src/main/java/com/yu/agent/workflow/api/ApiResponse.java) 和 [GlobalExceptionHandler.java](../src/main/java/com/yu/agent/workflow/api/GlobalExceptionHandler.java)，理解统一响应和错误码。
+从 [TaskController.java](../src/main/java/com/yu/agent/workflow/api/TaskController.java) 开始，理解 `@AuthenticationPrincipal Jwt` 如何提供用户 ID 和角色，以及 `Idempotency-Key` 和 `X-Trace-Id` 的用途；再进入 [SecurityConfiguration.java](../src/main/java/com/yu/agent/workflow/security/SecurityConfiguration.java) 和 [JwtUserResolver.java](../src/main/java/com/yu/agent/workflow/security/JwtUserResolver.java) 查看令牌校验与角色映射。之后阅读 [ApiResponse.java](../src/main/java/com/yu/agent/workflow/api/ApiResponse.java) 和 [GlobalExceptionHandler.java](../src/main/java/com/yu/agent/workflow/api/GlobalExceptionHandler.java)，理解统一响应和错误码。
 
 ## 第二步：理解任务状态
 

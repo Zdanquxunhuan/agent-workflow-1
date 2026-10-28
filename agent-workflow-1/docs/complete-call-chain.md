@@ -2,7 +2,7 @@
 
 这份文档把外部工作流文档里的每日任务，串成一次真实请求可以走完的调用链。阅读时先看“当前代码链路”，再看“生产目标链路”；前者解释仓库现在怎么运行，后者说明接入真实身份、真实业务系统和生产基础设施时需要补什么。
 
-当前仓库是一个可测试的垂直切片：默认使用确定性规划器和内存仓库，业务工具使用脱敏模拟数据。设置 `AGENT_PERSISTENCE=jdbc` 可以切换到 PostgreSQL 适配器；设置 `DEEPSEEK_ENABLED=true` 才会调用 DeepSeek。
+当前仓库是一个可测试的垂直切片：默认使用确定性规划器和内存仓库（内置同一套脱敏演示数据）。设置 `AGENT_PERSISTENCE=jdbc` 可以切换到 MySQL 适配器，业务工具读写同一数据库；设置 `DEEPSEEK_ENABLED=true` 才会调用 DeepSeek。
 
 ## 1 先建立整体地图
 
@@ -16,7 +16,7 @@ flowchart LR
     APP --> POLICY[执行边界\nPromptInjectionGuard\nToolRegistry\nTaskStateMachine]
     POLICY --> TOOLS[工具层\n只读工具 / 模拟写工具]
     APP --> STATE[状态与审计\nAgentTask / AgentStep / AuditEvent]
-    STATE --> STORE[持久化\nMemory 或 PostgreSQL]
+    STATE --> STORE[持久化\nMemory 或 MySQL]
     API --> RESP[统一响应\nApiResponse / GlobalExceptionHandler]
 ```
 
@@ -40,8 +40,7 @@ flowchart LR
 ```http
 POST /api/v1/tasks
 Content-Type: application/json
-X-User-Id: alice
-X-Role: CUSTOMER_SERVICE
+Authorization: Bearer <JWT>
 Idempotency-Key: demo-read-1
 X-Trace-Id: demo-trace-read
 
@@ -51,10 +50,10 @@ X-Trace-Id: demo-trace-read
 `TaskController.create` 做三件事：
 
 1. 使用 `@Valid` 检查请求体，`request` 不能为空且最多 2000 个字符。
-2. 解析 `X-User-Id`、`X-Role`、`Idempotency-Key`、`X-Trace-Id`。
+2. 通过 Spring Security 的 `@AuthenticationPrincipal Jwt` 读取签名令牌，`JwtUserResolver` 从 `sub` 得到用户 ID、从配置的角色 claim 得到有效角色；同时读取 `Idempotency-Key`、`X-Trace-Id`。
 3. 调用 `AgentApplicationService.create`，最后包装成 `ApiResponse`。
 
-生产环境中，`X-User-Id` 和 `X-Role` 只能是本地演示替身。它们必须由网关验证 JWT/OIDC 或 mTLS 身份后注入，不能让客户端自由填写。
+`X-User-Id` 和 `X-Role` 已被移除，客户端提交这两个头不会影响身份。生产环境由 OIDC/JWT 验证签名、issuer、audience 和过期时间；`local` 模式只用于离线演示和测试。审批接口在过滤器链和业务层都要求 `SUPERVISOR`/`ADMIN`，并且申请人不能审批自己的任务。
 
 ## 3 完整链路一：只读订单或物流查询
 
@@ -242,7 +241,7 @@ WAITING_APPROVAL
   -> RUNNING
   -> ToolRegistry.execute("refund.create", ...)
   -> RefundTool.execute
-  -> ResultEvaluator 检查 simulation=true
+  -> ResultEvaluator 检查 verified=true/simulation=true
   -> sideEffectCount = 1
   -> SUCCEEDED
 ```
@@ -423,7 +422,7 @@ flowchart LR
     U[Web / App / CRM] --> GW[API Gateway\nOIDC/JWT\n限流/WAF]
     GW --> API[Task API]
     API --> AUTH[Identity + Policy\n服务端解析身份]
-    AUTH --> DB[(PostgreSQL\n任务/步骤/审批)]
+    AUTH --> DB[(MySQL\n任务/业务/审批)]
     API --> Q[Command Queue]
     Q --> W[Workflow Worker]
     W --> G[Guard + Planner Gateway]
@@ -451,10 +450,10 @@ flowchart LR
 
 | 方面 | 当前仓库 | 生产需要 |
 | --- | --- | --- |
-| 身份认证 | 请求头演示身份 | OIDC/JWT、mTLS、服务端角色映射 |
-| 业务数据 | 固定模拟数据 | 带超时、重试、幂等和审计的外部适配器 |
+| 身份认证 | JWT 资源服务器 + 角色 claim + 职责分离；本地 HS256 演示 | 企业 IdP 联调、令牌轮换/吊销、租户与审批范围 |
+| 业务数据 | 本地 MySQL + 脱敏种子数据，下游沙箱网关 | 带超时、重试、幂等和审计的外部适配器 |
 | 任务执行 | HTTP 请求内同步执行 | 队列、Worker、超时、取消和死信队列 |
-| 持久化 | 内存默认，JDBC 可选 | PostgreSQL 连接池、迁移、备份、事务和锁验证 |
+| 持久化 | 内存默认或 MySQL JDBC | 备份、保留策略；多实例事务/锁已由双实例验收覆盖 |
 | 审计 | 应用层事件追加 | Outbox/事件总线、不可篡改存储、脱敏和保留策略 |
 | Tool Calling | 只读聊天已创建任务并记录基础事件 | 会话历史、成本控制、模型网关和生产级审计检索 |
 | 观测性 | `traceId` 字段 | OpenTelemetry、指标、告警、SLO、审计检索 |

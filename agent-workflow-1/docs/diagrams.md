@@ -18,7 +18,7 @@ flowchart LR
     AS --> RP[TaskRepository]
     AS --> EP[EventRepository]
     RP --> MEM[Memory]
-    RP --> PG[(PostgreSQL + Flyway)]
+    RP --> PG[(MySQL + Flyway)]
     EP --> MEM
     EP --> PG
 ```
@@ -66,7 +66,7 @@ sequenceDiagram
     S->>S: check role + task state
     S->>S: WAITING_APPROVAL -> RUNNING
     S->>W: execute once
-    W-->>S: simulation=true
+    W-->>S: verified=true（本地库写入）
     S->>S: RUNNING -> SUCCEEDED
     S-->>M: sideEffectCount=1
     M->>S: approve(taskId) again

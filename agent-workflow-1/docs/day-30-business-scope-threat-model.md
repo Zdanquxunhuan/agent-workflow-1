@@ -10,16 +10,16 @@
 
 | 场景 | 工具 | 类型 | 结果 |
 | --- | --- | --- | --- |
-| 查询订单状态和金额 | `order.query` | 只读 | 返回固定模拟订单 |
-| 查询订单物流 | `shipment.query` | 只读 | 返回固定模拟物流 |
-| 查询售后工单 | `ticket.query` | 只读 | 返回固定模拟工单 |
+| 查询订单状态和金额 | `order.query` | 只读 | 返回业务库订单 |
+| 查询订单物流 | `shipment.query` | 只读 | 返回业务库物流 |
+| 查询售后工单 | `ticket.query` | 只读 | 返回业务库工单 |
 | 查询售后政策 | `knowledge.search` | 只读 | 返回带引用的授权知识片段 |
-| 创建退款 | `refund.create` | 高风险写操作 | 只返回 `simulation=true` 的模拟结果 |
-| 修改订单地址 | `order.address.update` | 高风险写操作 | 只返回 `simulation=true` 的模拟结果 |
+| 创建退款 | `refund.create` | 高风险写操作 | 写 MySQL 退款/Outbox，沙箱网关结算 |
+| 修改订单地址 | `order.address.update` | 高风险写操作 | 写 MySQL 地址变更/Outbox |
 
 ### 1.2 明确不在范围内
 
-- 不连接真实订单、支付、物流、工单或知识库系统。
+- 不连接真实支付、物流、工单或知识库下游；本地 MySQL 业务库仅存脱敏演示数据。
 - 不保存或处理真实客户个人信息。
 - 模型不能直接调用 Java 类、任意 HTTP 接口或写工具。
 - 模型不能决定角色、审批状态、工具白名单或任务最终状态。
@@ -107,7 +107,7 @@ sequenceDiagram
     S-->>C: FORBIDDEN
     M->>S: approve(taskId)
     S->>W: 执行一次
-    W-->>S: simulation=true
+    W-->>S: MySQL 写入 + Outbox 受理
     S-->>M: SUCCEEDED, sideEffectCount=1
     M->>S: 重复 approve(taskId)
     S-->>M: 返回终态，不重复写入
@@ -132,13 +132,13 @@ flowchart TD
 | --- | --- | --- | --- | --- |
 | 模型调用未注册工具 | 计划或 Tool Calling 返回未知名称 | `ToolRegistry.require` 和计划规范化拒绝；任务记录 `PLAN_REJECTED` 或工具拒绝事件 | `ToolRegistry.java`、`AgentApplicationService.java` | 仍需线上监控拒绝率 |
 | 模型关闭审批标记 | 计划返回 `requiresApproval=false` | 服务端按注册工具的 `readOnly` 属性重写审批属性 | `AgentApplicationService.normalizeAndValidatePlan` | 新增写工具时必须正确标记 `readOnly=false` |
-| 客服绕过审批执行写操作 | 直接调用审批接口或工具 | 审批接口只接受主管/管理员；写工具也只允许主管/管理员；审批前不执行工具 | `AgentApplicationService.approve`、`ToolRegistry.execute`、`AgentWorkflow1ApplicationTests` | 本地身份头是演示替身，不是生产认证 |
+| 客服绕过审批执行写操作 | 直接调用审批接口或工具 | 审批接口只接受主管/管理员；写工具也只允许主管/管理员；审批前不执行工具 | `AgentApplicationService.approve`、`ToolRegistry.execute`、`AgentWorkflow1ApplicationTests` | 已改为 JWT + 职责分离；企业 IdP 联调、令牌吊销和审批范围仍未完成 |
 | 参数注入或危险额外字段 | 工具参数缺失、越界或多字段 | `AbstractTool` 统一拒绝未知字段、空值、超长值；金额范围单独校验 | `AbstractTool.java`、`RefundTool.java`、工具测试 | 复杂业务规则仍需真实系统契约 |
 | Prompt Injection | 用户输入或模型消息包含覆盖指令 | `PromptInjectionGuard` 在任务入口和聊天入口阻断 | `PromptInjectionGuard.java`、`ReliabilityControlTests` | 规则列表不是完整语义安全方案 |
-| 重复任务或重复审批 | 网络重试、重复点击 | `Idempotency-Key` 返回原任务；终态审批直接返回；任务锁保护审批路径 | `AgentApplicationService`、`AgentWorkflow1ApplicationTests` | JDBC 并发验收仍需真实 PostgreSQL 环境 |
+| 重复任务或重复审批 | 网络重试、重复点击 | `Idempotency-Key` 返回原任务；唯一约束裁决并发创建；终态审批直接返回；行锁保护审批路径 | `AgentApplicationService`、`JdbcTaskRepository`、`AgentWorkflow1ApplicationTests`、`scripts/two_instance_acceptance.py` | 已在双实例 MySQL 验收中覆盖（73/73）；目标环境仍需复跑 |
 | 无限执行或模型循环 | 超长计划、连续 Tool Calling | `maxSteps`、deadline、Tool Calling 最大回合数 | `AgentApplicationService`、`DeepSeekToolCallingService`、`RetryPolicy` | 指标和生产限流仍需补充 |
-| 工具返回“成功”但业务未完成 | 不可信写结果 | 写工具结果必须包含 `simulation=true`，否则 `ResultEvaluator` 拒绝 | `ResultEvaluator.java`、`ReliabilityControlTests` | 真实业务接入时要换成业务状态查询 |
-| 进程重启后重复写入 | 任务停在 `RUNNING` | `RecoveryService` 标记 `RECOVERY_REQUIRED`；恢复只允许剩余只读步骤 | `RecoveryService.java`、`CheckpointRecoveryTests` | Docker/PostgreSQL 重启演练受本机环境限制 |
+| 工具返回“成功”但业务未完成 | 不可信写结果 | 写工具结果必须包含 `verified=true` 或 `simulation=true`，否则 `ResultEvaluator` 拒绝 | `ResultEvaluator.java`、`ReliabilityControlTests` | 真实业务接入时要换成业务状态查询 |
+| 进程重启后重复写入 | 任务停在 `RUNNING` | `RecoveryService` 标记 `RECOVERY_REQUIRED`；恢复只允许剩余只读步骤 | `RecoveryService.java`、`CheckpointRecoveryTests` | Docker/MySQL 重启演练尚未执行 |
 | 知识越权或编造政策 | 跨角色检索、无证据检索 | `KnowledgeBase` 按角色过滤；无命中返回 `NO_EVIDENCE`；只返回片段和引用 | `KnowledgeBase.java`、`KnowledgeSearchTool.java` | 外部向量库 ACL 尚未接入 |
 | 审计泄漏敏感信息 | 事件、响应或日志 | 当前只使用模拟数据，事件记录工具名、结果码和摘要；生产认证和脱敏仍需替换 | `AuditEvent.java`、`docs/security.md` | 生产日志策略需要单独审查 |
 
@@ -146,11 +146,11 @@ flowchart TD
 
 | 文档要求 | 本仓库交付物 | 验收方式 |
 | --- | --- | --- |
-| 售后场景需求，只使用模拟数据 | 本文第 1 节、`README.md`、`tools` 包 | 检查工具固定数据和 `simulation=true` |
+| 售后场景需求，只使用模拟数据 | 本文第 1 节、`README.md`、`tools` 包 | 检查业务库演示数据和写入结果 |
 | 角色及权限矩阵 | 本文第 2 节、`UserRole`、`AgentTool`、`ToolRegistry` | 运行工具权限和审批测试 |
 | 只读与高风险动作区分 | 本文第 3 节、`readOnly()`、`normalizeAndValidatePlan` | 只读任务直接完成；写任务进入 `WAITING_APPROVAL` |
 | 正常、审批、失败恢复流程 | 本文第 4 节、`docs/diagrams.md`、`docs/demo.md` | 按演示脚本查看状态和事件 |
 | 威胁清单及控制措施 | 本文第 5 节、`docs/security.md` | 检查每项威胁是否有代码控制和测试证据 |
 
-Day 30 的完成判断是“边界明确、没有真实写接口、每类风险有控制措施”。它不是说系统已经达到生产验收；真实认证、外部系统幂等、PostgreSQL 重启和压力指标仍属于后续工作。
+Day 30 的完成判断是“边界明确、每类风险有控制措施”。后续已补本地 MySQL 业务读写和沙箱网关，但真实认证、真实下游幂等、MySQL 重启和压力指标仍属于后续工作。
 
