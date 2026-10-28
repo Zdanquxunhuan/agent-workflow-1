@@ -34,9 +34,9 @@ public class DeepSeekTaskPlanner implements TaskPlanner {
             You are a constrained enterprise after-sales workflow planner.
             Return JSON only. The JSON must have exactly one top-level field named steps.
             Each step has toolName, arguments, and requiresApproval.
-            Only use these tool names: order.query, shipment.query, ticket.query,
-            knowledge.search, refund.create, order.address.update.
-            refund.create and order.address.update always require approval.
+            Only use these tool names: order.query, payment.query, shipment.query, ticket.query,
+            knowledge.search, refund.create, order.address.update, shipment.create.
+            refund.create, order.address.update and shipment.create always require approval.
             Never invent a tool, user id, permission, or business result.
             If required information is missing, return {"steps":[]}.
             Example JSON: {"steps":[{"toolName":"order.query","arguments":{"orderId":"ORD-1001"},"requiresApproval":false}]}

@@ -43,12 +43,18 @@ public class DeterministicTaskPlanner implements TaskPlanner {
             require(orderId, "Address changes must include an order id such as ORD-1001");
             String address = extractAddress(request);
             steps.add(new PlanStep(1, "order.address.update", Map.of("orderId", orderId, "newAddress", address), true));
+        } else if (containsAny(normalized, "发货", "创建物流单", "ship order", "create shipment")) {
+            require(orderId, "Shipment creation requests must include an order id such as ORD-1003");
+            steps.add(new PlanStep(1, "shipment.create", Map.of("orderId", orderId), true));
         } else if (containsAny(normalized, "物流", "配送", "shipment", "tracking")) {
             require(orderId, "Shipment requests must include an order id such as ORD-1001");
             steps.add(new PlanStep(1, "shipment.query", Map.of("orderId", orderId), false));
         } else if (containsAny(normalized, "工单", "ticket")) {
             require(ticketId, "Ticket requests must include a ticket id such as TKT-2001");
             steps.add(new PlanStep(1, "ticket.query", Map.of("ticketId", ticketId), false));
+        } else if (containsAny(normalized, "支付", "付款", "payment", "交易")) {
+            require(orderId, "Payment requests must include an order id such as ORD-1001");
+            steps.add(new PlanStep(1, "payment.query", Map.of("orderId", orderId), false));
         } else if (containsAny(normalized, "政策", "规则", "policy", "知识")) {
             steps.add(new PlanStep(1, "knowledge.search", Map.of("query", request), false));
         } else if (containsAny(normalized, "订单", "order")) {
