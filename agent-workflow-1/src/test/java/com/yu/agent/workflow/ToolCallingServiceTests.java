@@ -8,11 +8,14 @@ import com.yu.agent.workflow.application.ToolCall;
 import com.yu.agent.workflow.application.ToolCallingGateway;
 import com.yu.agent.workflow.application.ToolCallingResponse;
 import com.yu.agent.workflow.application.KnowledgeBase;
+import com.yu.agent.workflow.commerce.InMemoryCommerceRepository;
 import com.yu.agent.workflow.domain.UserRole;
 import com.yu.agent.workflow.tools.AddressUpdateTool;
 import com.yu.agent.workflow.tools.KnowledgeSearchTool;
 import com.yu.agent.workflow.tools.OrderQueryTool;
+import com.yu.agent.workflow.tools.PaymentQueryTool;
 import com.yu.agent.workflow.tools.RefundTool;
+import com.yu.agent.workflow.tools.ShipmentCreateTool;
 import com.yu.agent.workflow.tools.ShipmentQueryTool;
 import com.yu.agent.workflow.tools.TicketQueryTool;
 import com.yu.agent.workflow.tools.ToolRegistry;
@@ -70,7 +73,10 @@ class ToolCallingServiceTests {
     }
 
     private ToolRegistry registry() {
-        return new ToolRegistry(List.of(new OrderQueryTool(), new ShipmentQueryTool(), new TicketQueryTool(),
-                new KnowledgeSearchTool(new KnowledgeBase()), new RefundTool(), new AddressUpdateTool()));
+        InMemoryCommerceRepository commerce = new InMemoryCommerceRepository();
+        return new ToolRegistry(List.of(new OrderQueryTool(commerce), new PaymentQueryTool(commerce),
+                new ShipmentQueryTool(commerce), new TicketQueryTool(commerce),
+                new KnowledgeSearchTool(new KnowledgeBase()), new RefundTool(commerce),
+                new AddressUpdateTool(commerce), new ShipmentCreateTool(commerce)));
     }
 }

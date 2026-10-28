@@ -6,6 +6,7 @@ import com.yu.agent.workflow.application.DeepSeekToolCallingService;
 import com.yu.agent.workflow.application.ToolCall;
 import com.yu.agent.workflow.application.ToolCallingGateway;
 import com.yu.agent.workflow.application.ToolCallingResponse;
+import com.yu.agent.workflow.commerce.InMemoryCommerceRepository;
 import com.yu.agent.workflow.domain.TaskStatus;
 import com.yu.agent.workflow.domain.UserRole;
 import com.yu.agent.workflow.persistence.EventRepository;
@@ -30,7 +31,7 @@ class ChatAuditServiceTests {
         TaskRepository tasks = new InMemoryTaskRepository();
         EventRepository events = new InMemoryEventRepository();
         ChatAuditService audit = new ChatAuditService(tasks, events);
-        ToolRegistry registry = new ToolRegistry(List.of(new OrderQueryTool()));
+        ToolRegistry registry = new ToolRegistry(List.of(new OrderQueryTool(new InMemoryCommerceRepository())));
         Queue<ToolCallingResponse> responses = new ArrayDeque<>();
         ToolCall call = new ToolCall("call-1", "order_query", Map.of("orderId", "ORD-1001"));
         responses.add(new ToolCallingResponse(null, List.of(call), assistantWithCall(call)));

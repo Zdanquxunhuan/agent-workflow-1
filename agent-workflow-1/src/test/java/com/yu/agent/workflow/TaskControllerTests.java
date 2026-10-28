@@ -5,14 +5,19 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
+import java.util.List;
+
+import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.containsString;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.hamcrest.Matchers.not;
-import static org.hamcrest.Matchers.containsString;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -30,8 +35,8 @@ class TaskControllerTests {
     @Test
     void invalidRequestIsRejectedWithoutStackTrace() throws Exception {
         mvc.perform(post("/api/v1/tasks")
+                        .with(user("alice", "CUSTOMER_SERVICE"))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .header("X-User-Id", "alice")
                         .content("{\"request\":\"\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
@@ -40,11 +45,18 @@ class TaskControllerTests {
     }
 
     @Test
-    void missingIdentityHeaderIsAClientError() throws Exception {
+    void missingTokenIsRejectedAsUnauthorized() throws Exception {
         mvc.perform(post("/api/v1/tasks")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"request\":\"查询订单 ORD-1001\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.errorCode").value("UNAUTHORIZED"));
+    }
+
+    private static RequestPostProcessor user(String subject, String role) {
+        return jwt()
+                .jwt(jwt -> jwt.subject(subject).claim("roles", List.of(role)))
+                .authorities(new SimpleGrantedAuthority("ROLE_" + role));
     }
 }
