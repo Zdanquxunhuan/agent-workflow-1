@@ -7,8 +7,9 @@ import java.util.List;
 
 public interface TaskRepository {
     AgentTask save(AgentTask task);
+    /** Atomically inserts a new task; returns the existing task when the idempotency key is already bound. */
+    AgentTask create(AgentTask task);
     AgentTask require(String id);
     AgentTask byIdempotency(String userId, String key);
-    void bindIdempotency(AgentTask task);
     List<AgentTask> findByStatus(TaskStatus status);
 }
