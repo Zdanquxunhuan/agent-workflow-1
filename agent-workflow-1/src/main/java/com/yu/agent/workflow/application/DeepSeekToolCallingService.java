@@ -78,14 +78,15 @@ public class DeepSeekToolCallingService {
         List<Map<String, Object>> specifications = new ArrayList<>();
         for (var tool : registry.readOnlyTools()) {
             Map<String, Object> properties = new LinkedHashMap<>();
-            if (tool.name().equals("order.query") || tool.name().equals("shipment.query")) properties.put("orderId", Map.of("type", "string"));
+            if (tool.name().equals("order.query") || tool.name().equals("shipment.query")
+                    || tool.name().equals("payment.query")) properties.put("orderId", Map.of("type", "string"));
             if (tool.name().equals("ticket.query")) properties.put("ticketId", Map.of("type", "string"));
             if (tool.name().equals("knowledge.search")) properties.put("query", Map.of("type", "string"));
             Map<String, Object> function = new LinkedHashMap<>();
             // DeepSeek/OpenAI function names cannot contain dots; keep the
             // server's dotted registry name behind a reversible wire name.
             function.put("name", externalToolName(tool.name()));
-            function.put("description", "Read-only simulated tool: " + tool.name());
+            function.put("description", "Read-only business tool: " + tool.name());
             function.put("parameters", Map.of("type", "object", "properties", properties, "additionalProperties", false));
             specifications.add(Map.of("type", "function", "function", function));
         }
