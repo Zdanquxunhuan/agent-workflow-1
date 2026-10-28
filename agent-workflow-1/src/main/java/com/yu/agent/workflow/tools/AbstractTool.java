@@ -15,6 +15,28 @@ abstract class AbstractTool implements AgentTool {
         return text.trim();
     }
 
+    protected String optionalText(Map<String, Object> args, String name, String defaultValue) {
+        Object value = args.get(name);
+        if (value == null) return defaultValue;
+        if (!(value instanceof String text) || text.isBlank()) {
+            throw BusinessException.of("INVALID_ARGUMENT", "Invalid argument: " + name);
+        }
+        if (text.length() > 200) {
+            throw BusinessException.of("INVALID_ARGUMENT", "Argument is too long: " + name);
+        }
+        return text.trim();
+    }
+
+    /**
+     * Business idempotency key derived from the server-owned task id, never from
+     * model output. Retries and repeated approvals therefore resolve to the same
+     * downstream operation.
+     */
+    protected String idempotencyKey(ToolContext context, String... parts) {
+        String raw = context.taskId() + ":" + name() + ":" + String.join(":", parts);
+        return raw.length() <= 150 ? raw : raw.substring(0, 150);
+    }
+
     protected void rejectUnknown(Map<String, Object> args, String... allowed) {
         for (String key : args.keySet()) {
             boolean valid = false;
