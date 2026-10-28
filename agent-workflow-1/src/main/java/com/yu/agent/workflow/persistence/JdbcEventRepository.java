@@ -26,9 +26,8 @@ public class JdbcEventRepository implements EventRepository {
     @Override
     public void append(AuditEvent event) {
         jdbc.update("""
-                insert into audit_events(id, task_id, trace_id, event_type, actor, tool_name, status, message, metadata_json, occurred_at)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)
-                on conflict (id) do nothing
+                insert ignore into audit_events(id, task_id, trace_id, event_type, actor, tool_name, status, message, metadata_json, occurred_at)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, event.eventId(), event.taskId(), event.traceId(), event.type(), event.actor(), event.toolName(),
                 event.status(), event.message(), json(event.metadata()), Timestamp.from(event.occurredAt()));
     }

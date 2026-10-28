@@ -12,7 +12,10 @@ import com.yu.agent.workflow.domain.PlanStep;
 import com.yu.agent.workflow.domain.TaskPlan;
 import com.yu.agent.workflow.domain.TaskStatus;
 import com.yu.agent.workflow.domain.UserRole;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +27,8 @@ import java.util.Map;
 @Repository
 @ConditionalOnProperty(name = "agent.workflow.persistence", havingValue = "jdbc")
 public class JdbcTaskRepository implements TaskRepository {
+    private static final Logger log = LoggerFactory.getLogger(JdbcTaskRepository.class);
+
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
 
@@ -33,27 +38,51 @@ public class JdbcTaskRepository implements TaskRepository {
     }
 
     @Override
+    @Transactional(transactionManager = "workflowTransactionManager")
+    public AgentTask create(AgentTask task) {
+        AgentTaskView view = task.view();
+        try {
+            jdbc.update("""
+                    insert into tasks(id, user_id, role, request, status, idempotency_key, created_at, updated_at, result_message, side_effect_count, plan_json, approval_json)
+                    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, view.id(), view.userId(), view.role().name(), view.request(), view.status().name(), view.idempotencyKey(),
+                    Timestamp.from(view.createdAt()), Timestamp.from(view.updatedAt()), view.resultMessage(), view.sideEffectCount(),
+                    json(view.plan()), json(view.approval()));
+            return task;
+        } catch (DuplicateKeyException ex) {
+            // Multiple instances can race on the same (user_id, idempotency_key).
+            // Return the winner's task; never overwrite its plan/status.
+            if (view.idempotencyKey() == null || view.idempotencyKey().isBlank()) throw ex;
+            AgentTask existing = byIdempotency(view.userId(), view.idempotencyKey());
+            if (existing == null) throw ex;
+            log.info("Unique constraint resolved concurrent create taskId={} user={} key={}",
+                    existing.id(), view.userId(), view.idempotencyKey());
+            return existing;
+        }
+    }
+
+    @Override
     @Transactional
     public AgentTask save(AgentTask task) {
         AgentTaskView view = task.view();
         jdbc.update("""
                 insert into tasks(id, user_id, role, request, status, idempotency_key, created_at, updated_at, result_message, side_effect_count, plan_json, approval_json)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb)
-                on conflict (id) do update set user_id=excluded.user_id, role=excluded.role, request=excluded.request,
-                  status=excluded.status, idempotency_key=excluded.idempotency_key, updated_at=excluded.updated_at,
-                  result_message=excluded.result_message, side_effect_count=excluded.side_effect_count,
-                  plan_json=excluded.plan_json, approval_json=excluded.approval_json
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                on duplicate key update user_id=values(user_id), role=values(role), request=values(request),
+                  status=values(status), idempotency_key=values(idempotency_key), updated_at=values(updated_at),
+                  result_message=values(result_message), side_effect_count=values(side_effect_count),
+                  plan_json=values(plan_json), approval_json=values(approval_json)
                 """, view.id(), view.userId(), view.role().name(), view.request(), view.status().name(), view.idempotencyKey(),
                 Timestamp.from(view.createdAt()), Timestamp.from(view.updatedAt()), view.resultMessage(), view.sideEffectCount(),
                 json(view.plan()), json(view.approval()));
         jdbc.update("delete from task_steps where task_id = ?", view.id());
         for (AgentStep step : view.steps()) {
             jdbc.update("""
-                    insert into task_steps(id, task_id, sequence_no, tool_name, arguments_json, status, result_code, result_message, started_at, finished_at)
-                    values (?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?)
+                    insert into task_steps(id, task_id, sequence_no, tool_name, arguments_json, status, result_code, result_message, started_at, finished_at, result_json)
+                    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, step.stepId(), view.id(), step.sequence(), step.toolName(), json(step.arguments()), step.status(),
                     step.resultCode(), step.resultMessage(), Timestamp.from(step.startedAt()),
-                    step.finishedAt() == null ? null : Timestamp.from(step.finishedAt()));
+                    step.finishedAt() == null ? null : Timestamp.from(step.finishedAt()), json(step.resultData()));
         }
         return task;
     }
@@ -86,11 +115,6 @@ public class JdbcTaskRepository implements TaskRepository {
     }
 
     @Override
-    public void bindIdempotency(AgentTask task) {
-        // The unique (user_id, idempotency_key) constraint is the binding.
-    }
-
-    @Override
     public List<AgentTask> findByStatus(TaskStatus status) {
         return jdbc.query("select id from tasks where status = ? order by created_at asc",
                 (rs, rowNum) -> require(rs.getString(1)), status.name());
@@ -98,12 +122,13 @@ public class JdbcTaskRepository implements TaskRepository {
 
     private List<AgentStep> loadSteps(String taskId) {
         return jdbc.query("""
-                select id, sequence_no, tool_name, arguments_json, status, result_code, result_message, started_at, finished_at
+                select id, sequence_no, tool_name, arguments_json, status, result_code, result_message, started_at, finished_at, result_json
                 from task_steps where task_id = ? order by sequence_no asc
                 """, (rs, rowNum) -> new AgentStep(rs.getString("id"), rs.getInt("sequence_no"), rs.getString("tool_name"),
                 readMap(rs.getString("arguments_json")), rs.getString("status"), rs.getString("result_code"),
                 rs.getString("result_message"), rs.getTimestamp("started_at").toInstant(),
-                rs.getTimestamp("finished_at") == null ? null : rs.getTimestamp("finished_at").toInstant()), taskId);
+                rs.getTimestamp("finished_at") == null ? null : rs.getTimestamp("finished_at").toInstant(),
+                rs.getString("result_json") == null ? Map.of() : readMap(rs.getString("result_json"))), taskId);
     }
 
     private String json(Object value) {

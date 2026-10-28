@@ -63,6 +63,7 @@ public final class AgentTask {
     public UserRole role() { return role; }
     public String request() { return request; }
     public String idempotencyKey() { return idempotencyKey; }
+    public synchronized Instant updatedAt() { return updatedAt; }
     public synchronized TaskStatus status() { return status; }
     public synchronized TaskPlan plan() { return plan; }
     public synchronized ApprovalRequest approval() { return approval; }

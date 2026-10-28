@@ -27,9 +27,8 @@ public class JdbcAuditOutboxRepository implements AuditOutboxRepository {
     @Override
     public void append(AuditEvent event) {
         jdbc.update("""
-                insert into audit_outbox(id, event_id, task_id, event_type, payload_json, created_at)
-                values (?, ?, ?, ?, ?::jsonb, ?)
-                on conflict (event_id) do nothing
+                insert ignore into audit_outbox(id, event_id, task_id, event_type, payload_json, created_at)
+                values (?, ?, ?, ?, ?, ?)
                 """, event.eventId(), event.eventId(), event.taskId(), event.type(), json(event),
                 Timestamp.from(event.occurredAt()));
     }
@@ -60,8 +59,8 @@ public class JdbcAuditOutboxRepository implements AuditOutboxRepository {
                   and (next_attempt_at is null or next_attempt_at <= ?)
                   and (locked_until is null or locked_until <= ?)
                 order by created_at asc
-                for update skip locked
                 limit ?
+                for update skip locked
                 """, (rs, rowNum) -> {
             String eventId = rs.getString("event_id");
             jdbc.update("update audit_outbox set locked_by = ?, locked_until = ? where event_id = ?",

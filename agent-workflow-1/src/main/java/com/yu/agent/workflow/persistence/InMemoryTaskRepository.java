@@ -18,13 +18,31 @@ public class InMemoryTaskRepository implements TaskRepository {
     private final Map<String, String> idempotency = new ConcurrentHashMap<>();
 
     public AgentTask save(AgentTask task) { tasks.put(task.id(), task); return task; }
+    public synchronized AgentTask create(AgentTask task) {
+        String key = idempotencyKey(task);
+        if (key != null) {
+            String existingId = idempotency.get(key);
+            if (existingId != null) return tasks.get(existingId);
+        }
+        tasks.put(task.id(), task);
+        if (key != null) idempotency.put(key, task.id());
+        return task;
+    }
     public AgentTask require(String id) { return Optional.ofNullable(tasks.get(id)).orElseThrow(() -> BusinessException.of("TASK_NOT_FOUND", "Task does not exist: " + id)); }
     public AgentTask byIdempotency(String userId, String key) {
-        String id = idempotency.get(userId + "::" + key);
+        String id = idempotency.get(idempotencyKey(userId, key));
         return id == null ? null : tasks.get(id);
     }
-    public void bindIdempotency(AgentTask task) { if (task.idempotencyKey() != null) idempotency.put(task.userId() + "::" + task.idempotencyKey(), task.id()); }
     public List<AgentTask> findByStatus(TaskStatus status) {
         return tasks.values().stream().filter(task -> task.status() == status).toList();
+    }
+
+    private String idempotencyKey(AgentTask task) {
+        return task.idempotencyKey() == null || task.idempotencyKey().isBlank()
+                ? null : idempotencyKey(task.userId(), task.idempotencyKey());
+    }
+
+    private String idempotencyKey(String userId, String key) {
+        return userId + "::" + key;
     }
 }
