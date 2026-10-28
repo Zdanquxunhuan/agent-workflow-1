@@ -17,6 +17,8 @@ import com.yu.agent.workflow.persistence.TaskRepository;
 import com.yu.agent.workflow.tools.ToolContext;
 import com.yu.agent.workflow.tools.ToolRegistry;
 import com.yu.agent.workflow.tools.ToolResult;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,10 +26,13 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 public class AgentApplicationService {
+    private static final Logger log = LoggerFactory.getLogger(AgentApplicationService.class);
+
     private final TaskRepository tasks;
     private final EventRepository events;
     private final TaskAuditWriter auditWriter;
@@ -60,15 +65,16 @@ public class AgentApplicationService {
      * response is data, not authority: it is normalized and checked before any
      * tool is allowed to execute.
      */
-    public synchronized AgentTaskView create(String userId, UserRole role, String request, String idempotencyKey, String traceId) {
-        if (userId == null || userId.isBlank()) throw BusinessException.of("INVALID_ARGUMENT", "X-User-Id is required");
-        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
-            AgentTask previous = tasks.byIdempotency(userId, idempotencyKey);
-            if (previous != null) return previous.view();
+    public AgentTaskView create(String userId, UserRole role, String request, String idempotencyKey, String traceId) {
+        if (userId == null || userId.isBlank()) throw BusinessException.of("INVALID_ARGUMENT", "Authenticated user id is required");
+        // Let the repository unique constraint settle concurrent retries. A
+        // read-then-insert pre-check would race across instances.
+        AgentTask candidate = new AgentTask(UUID.randomUUID().toString(), userId, role, request, idempotencyKey, Instant.now());
+        AgentTask task = tasks.create(candidate);
+        if (task != candidate) {
+            log.info("Idempotent replay taskId={} user={} key={}", task.id(), userId, idempotencyKey);
+            return task.view();
         }
-        AgentTask task = new AgentTask(UUID.randomUUID().toString(), userId, role, request, idempotencyKey, Instant.now());
-        tasks.save(task);
-        tasks.bindIdempotency(task);
         audit(task, traceId, "TASK_CREATED", userId, null, "Task created", Map.of());
         transition(task, TaskStatus.PLANNING, traceId, userId);
         Instant planningStarted = Instant.now();
@@ -113,7 +119,12 @@ public class AgentApplicationService {
             if (role != UserRole.SUPERVISOR && role != UserRole.ADMIN) {
                 throw BusinessException.of("FORBIDDEN", "Only a supervisor or admin can approve a task");
             }
-            if (task.status() == TaskStatus.SUCCEEDED) return task.view();
+            if (task.userId().equals(approver)) {
+                log.warn("Self-approval blocked taskId={} actor={}", taskId, approver);
+                throw BusinessException.of("FORBIDDEN", "Requesters cannot approve their own task");
+            }
+            if (task.status() == TaskStatus.SUCCEEDED || task.status() == TaskStatus.WAITING_EXTERNAL
+                    || task.status() == TaskStatus.UNKNOWN_SIDE_EFFECT) return task.view();
             if (task.status() != TaskStatus.WAITING_APPROVAL) {
                 throw BusinessException.of("INVALID_STATE", "Task is not waiting for approval");
             }
@@ -150,9 +161,13 @@ public class AgentApplicationService {
     @Transactional(transactionManager = "workflowTransactionManager")
     public AgentTaskView cancel(String taskId, String actor, UserRole role, String traceId) {
         AgentTask task = tasks.require(taskId);
-        if (!task.userId().equals(actor) && role != UserRole.ADMIN) throw BusinessException.of("FORBIDDEN", "Only the task owner can cancel it");
+        if (!task.userId().equals(actor) && role != UserRole.ADMIN)
+            throw BusinessException.of("FORBIDDEN", "Only the task owner can cancel it");
         synchronized (task) {
             if (task.status().terminal()) return task.view();
+            if (task.status() == TaskStatus.WAITING_EXTERNAL || task.status() == TaskStatus.UNKNOWN_SIDE_EFFECT) {
+                throw BusinessException.of("INVALID_STATE", "An accepted external operation cannot be cancelled; reconcile its outcome first");
+            }
             transition(task, TaskStatus.CANCELLED, traceId, actor);
             task.resultMessage("Cancelled by user");
             audit(task, traceId, "TASK_CANCELLED", actor, null, "Task cancelled", Map.of());
@@ -160,7 +175,9 @@ public class AgentApplicationService {
         }
     }
 
-    /** Resume only the remaining read-only suffix of a checkpointed task. */
+    /**
+     * Resume only the remaining read-only suffix of a checkpointed task.
+     */
     @Transactional(transactionManager = "workflowTransactionManager")
     public AgentTaskView resume(String taskId, String actor, UserRole role, String traceId) {
         if (role != UserRole.SUPERVISOR && role != UserRole.ADMIN) {
@@ -224,6 +241,7 @@ public class AgentApplicationService {
             return;
         }
         Instant deadline = Instant.now().plusSeconds(deadlineSeconds);
+        boolean awaitingExternal = false;
         for (PlanStep step : task.plan().steps()) {
             if (step.sequence() < startSequence) continue;
             if (Instant.now().isAfter(deadline)) {
@@ -257,29 +275,36 @@ public class AgentApplicationService {
                 return;
             }
             task.addStep(new AgentStep(stepId, step.sequence(), step.toolName(), step.arguments(),
-                    result.success() ? "SUCCEEDED" : "FAILED", result.code(), result.message(), started, Instant.now()));
+                    result.success() ? "SUCCEEDED" : "FAILED", result.code(), result.message(), started, Instant.now(), result.data()));
             audit(task, traceId, "TOOL_EXECUTED", actor, step.toolName(), result.message(), Map.of("code", result.code()));
             if (!result.success()) {
                 task.resultMessage(result.message());
                 transition(task, TaskStatus.FAILED, traceId, actor);
                 return;
             }
-            if (!toolRegistry.require(step.toolName()).readOnly()) task.incrementSideEffect();
+            if (!toolRegistry.require(step.toolName()).readOnly()) {
+                task.incrementSideEffect();
+                awaitingExternal |= Set.of("PENDING", "CREATED", "APPLIED").contains(String.valueOf(result.data().get("status")))
+                        && !Boolean.TRUE.equals(result.data().get("simulation"));
+            }
             Checkpoint checkpoint = new Checkpoint(task.id(), step.sequence() + 1, stepId, "READY", Instant.now());
             audit(task, traceId, "CHECKPOINT_SAVED", actor, step.toolName(), "Checkpoint saved", Map.of(
                     "nextSequence", checkpoint.nextSequence(), "lastStepId", checkpoint.lastStepId()));
         }
-        task.resultMessage("Workflow completed");
-        transition(task, TaskStatus.SUCCEEDED, traceId, actor);
-        audit(task, traceId, "TASK_SUCCEEDED", actor, null, "Workflow completed", Map.of());
+        task.resultMessage(awaitingExternal ? "Accepted; waiting for external business confirmation" : "Workflow completed");
+        transition(task, awaitingExternal ? TaskStatus.WAITING_EXTERNAL : TaskStatus.SUCCEEDED, traceId, actor);
+        audit(task, traceId, awaitingExternal ? "EXTERNAL_CONFIRMATION_PENDING" : "TASK_SUCCEEDED", actor, null,
+                task.view().resultMessage(), Map.of());
     }
 
     private TaskPlan normalizeAndValidatePlan(TaskPlan plan) {
-        if (plan == null || plan.steps().isEmpty()) throw BusinessException.of("INVALID_PLAN", "Planner returned no steps");
+        if (plan == null || plan.steps().isEmpty())
+            throw BusinessException.of("INVALID_PLAN", "Planner returned no steps");
         if (plan.steps().size() > maxSteps) throw BusinessException.of("INVALID_PLAN", "Plan has too many steps");
         List<PlanStep> normalized = new java.util.ArrayList<>();
         for (PlanStep step : plan.steps()) {
-            if (!toolRegistry.contains(step.toolName())) throw BusinessException.of("UNKNOWN_TOOL", "Tool is not registered: " + step.toolName());
+            if (!toolRegistry.contains(step.toolName()))
+                throw BusinessException.of("UNKNOWN_TOOL", "Tool is not registered: " + step.toolName());
             var tool = toolRegistry.require(step.toolName());
             // Approval is a server-side property of the registered tool. The
             // model cannot turn off the gate by returning false in its JSON.
