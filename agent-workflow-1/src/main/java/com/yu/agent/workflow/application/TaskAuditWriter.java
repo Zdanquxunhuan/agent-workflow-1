@@ -13,7 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Persists the current task snapshot, audit event, and outbox hand-off in one
  * resource transaction. The memory profile uses the configured no-op
- * transaction manager; JDBC callers share the PostgreSQL transaction boundary.
+ * transaction manager; JDBC callers share the MySQL transaction boundary.
  */
 @Component
 public class TaskAuditWriter {

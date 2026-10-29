@@ -7,15 +7,17 @@ import java.util.Set;
 
 /** Single source of truth for legal task transitions. */
 public final class TaskStateMachine {
-    private static final Map<TaskStatus, Set<TaskStatus>> TRANSITIONS = Map.of(
-            TaskStatus.CREATED, Set.of(TaskStatus.PLANNING, TaskStatus.CANCELLED),
-            TaskStatus.PLANNING, Set.of(TaskStatus.RUNNING, TaskStatus.WAITING_APPROVAL, TaskStatus.FAILED, TaskStatus.CANCELLED),
-            TaskStatus.WAITING_APPROVAL, Set.of(TaskStatus.RUNNING, TaskStatus.CANCELLED),
-            TaskStatus.RUNNING, Set.of(TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.CANCELLED, TaskStatus.RECOVERY_REQUIRED),
-            TaskStatus.RECOVERY_REQUIRED, Set.of(TaskStatus.RUNNING, TaskStatus.CANCELLED),
-            TaskStatus.SUCCEEDED, Set.of(),
-            TaskStatus.FAILED, Set.of(),
-            TaskStatus.CANCELLED, Set.of());
+    private static final Map<TaskStatus, Set<TaskStatus>> TRANSITIONS = Map.ofEntries(
+            Map.entry(TaskStatus.CREATED, Set.of(TaskStatus.PLANNING, TaskStatus.CANCELLED)),
+            Map.entry(TaskStatus.PLANNING, Set.of(TaskStatus.RUNNING, TaskStatus.WAITING_APPROVAL, TaskStatus.FAILED, TaskStatus.CANCELLED)),
+            Map.entry(TaskStatus.WAITING_APPROVAL, Set.of(TaskStatus.RUNNING, TaskStatus.CANCELLED)),
+            Map.entry(TaskStatus.RUNNING, Set.of(TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.CANCELLED, TaskStatus.RECOVERY_REQUIRED, TaskStatus.WAITING_EXTERNAL)),
+            Map.entry(TaskStatus.WAITING_EXTERNAL, Set.of(TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.UNKNOWN_SIDE_EFFECT)),
+            Map.entry(TaskStatus.UNKNOWN_SIDE_EFFECT, Set.of(TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.WAITING_EXTERNAL)),
+            Map.entry(TaskStatus.RECOVERY_REQUIRED, Set.of(TaskStatus.RUNNING, TaskStatus.CANCELLED)),
+            Map.entry(TaskStatus.SUCCEEDED, Set.of()),
+            Map.entry(TaskStatus.FAILED, Set.of()),
+            Map.entry(TaskStatus.CANCELLED, Set.of()));
 
     private TaskStateMachine() {}
 
