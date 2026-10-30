@@ -1,22 +1,37 @@
 openapi: 3.0.3
 info:
   title: Enterprise Workflow Agent API
-  version: 0.1.0
-  description: Simulated after-sales workflow Agent with server-side approval and audit controls.
+  version: 0.2.0
+  description: After-sales workflow Agent with JWT authentication, server-side approval, separation of duties, and audit controls.
 servers:
   - url: http://localhost:8080
+security:
+  - bearerAuth: []
 paths:
   /api/v1/health:
     get:
+      security: []
       responses:
         '200': { description: Service is healthy }
+  /api/v1/auth/dev-token:
+    post:
+      summary: Issue a local demo JWT
+      description: Only available when agent.auth.mode=local and agent.auth.dev-token-enabled=true. Never enable in production.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DevTokenRequest' }
+      responses:
+        '200': { description: Signed local token }
+        '404': { description: Dev token endpoint is disabled }
   /api/v1/tasks:
     post:
       summary: Create a constrained workflow task
       parameters:
-        - { in: header, name: X-User-Id, required: true, schema: { type: string } }
-        - { in: header, name: X-Role, required: false, schema: { type: string, default: CUSTOMER_SERVICE } }
         - { in: header, name: Idempotency-Key, required: false, schema: { type: string } }
+        - { in: header, name: X-Trace-Id, required: false, schema: { type: string } }
       requestBody:
         required: true
         content:
@@ -25,51 +40,63 @@ paths:
       responses:
         '201': { description: Task created }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /api/v1/tasks/{taskId}:
     get:
       summary: Get task state and steps
-      parameters: [{ $ref: '#/components/parameters/TaskId' }, { $ref: '#/components/parameters/UserId' }]
+      parameters: [{ $ref: '#/components/parameters/TaskId' }]
       responses:
         '200': { description: Task state }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/tasks/{taskId}/approve:
     post:
       summary: Approve a high-risk simulated action
-      parameters: [{ $ref: '#/components/parameters/TaskId' }, { $ref: '#/components/parameters/UserId' }]
+      description: Requires SUPERVISOR or ADMIN. The requester cannot approve their own task.
+      parameters: [{ $ref: '#/components/parameters/TaskId' }]
       responses:
-        '200': { description: Approved and executed at most once }
-        '403': { description: Supervisor or admin role required }
+        '200': { description: Approved at most once; JDBC writes return WAITING_EXTERNAL until external business confirmation }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Supervisor/admin role required, or self-approval attempted }
   /api/v1/tasks/{taskId}/reject:
     post:
       summary: Reject a high-risk action without executing it
-      parameters: [{ $ref: '#/components/parameters/TaskId' }, { $ref: '#/components/parameters/UserId' }]
+      description: Requires SUPERVISOR or ADMIN.
+      parameters: [{ $ref: '#/components/parameters/TaskId' }]
       responses:
         '200': { description: Task cancelled }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Supervisor/admin role required }
   /api/v1/tasks/{taskId}/cancel:
     post:
       summary: Cancel an active task
-      parameters: [{ $ref: '#/components/parameters/TaskId' }, { $ref: '#/components/parameters/UserId' }]
+      description: Accepted external operations cannot be cancelled through task cancellation; reconcile the business outcome first.
+      parameters: [{ $ref: '#/components/parameters/TaskId' }]
       responses:
         '200': { description: Task cancelled }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { description: External operation was already accepted and requires reconciliation }
   /api/v1/tasks/{taskId}/resume:
     post:
       summary: Resume a checkpointed read-only suffix
-      parameters: [{ $ref: '#/components/parameters/TaskId' }, { $ref: '#/components/parameters/UserId' }]
+      description: Requires SUPERVISOR or ADMIN.
+      parameters: [{ $ref: '#/components/parameters/TaskId' }]
       responses:
         '200': { description: Recovered task state }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Supervisor/admin role required }
         '409': { description: Recovery is unsafe or task is not recoverable }
   /api/v1/tasks/{taskId}/events:
     get:
       summary: List the audit timeline
-      parameters: [{ $ref: '#/components/parameters/TaskId' }, { $ref: '#/components/parameters/UserId' }]
+      parameters: [{ $ref: '#/components/parameters/TaskId' }]
       responses:
         '200': { description: Ordered audit events }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /api/v1/agent/chat:
     post:
       summary: Multi-round read-only Tool Calling chat
       parameters:
-        - { $ref: '#/components/parameters/UserId' }
-        - { in: header, name: X-Role, required: false, schema: { type: string, default: CUSTOMER_SERVICE } }
         - { in: header, name: Idempotency-Key, required: false, schema: { type: string, maxLength: 256 } }
         - { in: header, name: X-Trace-Id, required: false, schema: { type: string } }
       requestBody:
@@ -88,11 +115,83 @@ paths:
                   - type: object
                     properties:
                       data: { $ref: '#/components/schemas/ToolChatResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/integrations/commands:
+    get:
+      summary: List durable integration commands for a visible task
+      description: Available in JDBC mode with dispatcher enabled. Task owner, supervisor or admin.
+      parameters:
+        - { in: query, name: taskId, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Commands with status, attempts, idempotency key and external reference }
+        '403': { description: Task is not visible }
+  /api/v1/integrations/commands/{id}:
+    get:
+      summary: Query integration status and reconciliation evidence
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Command, chronological integration events and manual reviews }
+        '403': { description: Task is not visible }
+        '404': { description: Command not found }
+  /api/v1/integrations/reviews:
+    get:
+      summary: List manual integration reviews
+      description: Requires SUPERVISOR or ADMIN. At most 200 most recent entries.
+      parameters:
+        - { in: query, name: status, schema: { type: string, enum: [OPEN, RESOLVED], default: OPEN } }
+      responses:
+        '200': { description: Review queue }
+        '403': { description: Operator role required }
+  /api/v1/integrations/reviews/{id}/recheck:
+    post:
+      summary: Reconcile an uncertain operation by querying the authoritative ledger
+      description: Requires SUPERVISOR or ADMIN. Never submits another write or accepts a manually invented outcome.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IntegrationOperationRequest' }
+      responses:
+        '200': { description: Latest command evidence after reconciliation }
+        '403': { description: Operator role required }
+        '409': { description: Review is closed or another worker is processing the command }
+  /api/v1/integrations/reviews/{id}/acknowledge-failure:
+    post:
+      summary: Record human handling of a confirmed failed operation
+      description: Requires SUPERVISOR or ADMIN. UNKNOWN operations cannot be declared failed through this endpoint.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IntegrationOperationRequest' }
+      responses:
+        '200': { description: Review closed with operator and reason }
+        '403': { description: Operator role required }
+        '409': { description: Command outcome is not confirmed FAILED }
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: OIDC/JWT access token. The service reads the user id from `sub` and roles from the configured roles claim.
   parameters:
     TaskId: { in: path, name: taskId, required: true, schema: { type: string, format: uuid } }
-    UserId: { in: header, name: X-User-Id, required: true, schema: { type: string } }
   schemas:
+    IntegrationOperationRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 5, maxLength: 500 }
+    TaskStatus:
+      type: string
+      description: JDBC writes wait for external business confirmation; accepted HTTP responses are not final business success.
+      enum: [CREATED, PLANNING, RUNNING, WAITING_APPROVAL, WAITING_EXTERNAL, UNKNOWN_SIDE_EFFECT, RECOVERY_REQUIRED, SUCCEEDED, FAILED, CANCELLED]
     CreateTaskRequest:
       type: object
       required: [request]
@@ -103,6 +202,13 @@ components:
       required: [message]
       properties:
         message: { type: string, maxLength: 2000 }
+    DevTokenRequest:
+      type: object
+      required: [subject, role]
+      properties:
+        subject: { type: string, maxLength: 64 }
+        role: { type: string, enum: [CUSTOMER_SERVICE, SUPERVISOR, ADMIN, AGENT] }
+        traceId: { type: string }
     ToolChatResult:
       type: object
       required: [taskId, answer, rounds, executedTools]
@@ -123,4 +229,5 @@ components:
         traceId: { type: string }
   responses:
     BadRequest: { description: Invalid request or plan }
+    Unauthorized: { description: Missing, invalid, or expired bearer token }
     NotFound: { description: Task not found }

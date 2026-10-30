@@ -7,12 +7,14 @@
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
         <module name="agent-workflow-1" />
+        <module name="local-business-system" />
       </profile>
     </annotationProcessing>
   </component>
   <component name="JavacSettings">
     <option name="ADDITIONAL_OPTIONS_OVERRIDE">
       <module name="agent-workflow-1" options="-parameters" />
+      <module name="local-business-system" options="-parameters" />
     </option>
   </component>
 </project>

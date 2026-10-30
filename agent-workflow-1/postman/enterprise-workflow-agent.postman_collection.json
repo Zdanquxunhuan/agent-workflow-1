@@ -1,11 +1,14 @@
 {
   "info": {
     "name": "Enterprise Workflow Agent",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Business endpoints require a Bearer JWT. Mint local demo tokens first; the endpoint only exists when AGENT_AUTH_MODE=local and AGENT_AUTH_DEV_TOKEN_ENABLED=true. In production, obtain tokens from your OIDC provider instead."
   },
   "variable": [
     { "key": "baseUrl", "value": "http://localhost:8080" },
-    { "key": "taskId", "value": "replace-after-create" }
+    { "key": "taskId", "value": "replace-after-create" },
+    { "key": "customerToken", "value": "replace-after-mint" },
+    { "key": "supervisorToken", "value": "replace-after-mint" }
   ],
   "item": [
     {
@@ -13,13 +16,52 @@
       "request": { "method": "GET", "url": "{{baseUrl}}/api/v1/health" }
     },
     {
+      "name": "Mint customer token (local only)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('customerToken', pm.response.json().data.token);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": { "mode": "raw", "raw": "{\"subject\":\"alice\",\"role\":\"CUSTOMER_SERVICE\"}" },
+        "url": "{{baseUrl}}/api/v1/auth/dev-token"
+      }
+    },
+    {
+      "name": "Mint supervisor token (local only)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('supervisorToken', pm.response.json().data.token);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": { "mode": "raw", "raw": "{\"subject\":\"manager\",\"role\":\"SUPERVISOR\"}" },
+        "url": "{{baseUrl}}/api/v1/auth/dev-token"
+      }
+    },
+    {
       "name": "Create read-only shipment task",
       "request": {
         "method": "POST",
+        "auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{customerToken}}", "type": "string" } ] },
         "header": [
           { "key": "Content-Type", "value": "application/json" },
-          { "key": "X-User-Id", "value": "alice" },
-          { "key": "X-Role", "value": "CUSTOMER_SERVICE" },
           { "key": "Idempotency-Key", "value": "postman-read-1" }
         ],
         "body": { "mode": "raw", "raw": "{\"request\":\"查询订单 ORD-1001 的物流\"}" },
@@ -30,10 +72,9 @@
       "name": "Create refund waiting for approval",
       "request": {
         "method": "POST",
+        "auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{customerToken}}", "type": "string" } ] },
         "header": [
           { "key": "Content-Type", "value": "application/json" },
-          { "key": "X-User-Id", "value": "alice" },
-          { "key": "X-Role", "value": "CUSTOMER_SERVICE" },
           { "key": "Idempotency-Key", "value": "postman-refund-1" }
         ],
         "body": { "mode": "raw", "raw": "{\"request\":\"退款 ORD-1001 金额 20\"}" },
@@ -44,11 +85,8 @@
       "name": "Approve refund",
       "request": {
         "method": "POST",
-        "header": [
-          { "key": "Content-Type", "value": "application/json" },
-          { "key": "X-User-Id", "value": "manager" },
-          { "key": "X-Role", "value": "SUPERVISOR" }
-        ],
+        "auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{supervisorToken}}", "type": "string" } ] },
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
         "body": { "mode": "raw", "raw": "{\"reason\":\"符合模拟政策\"}" },
         "url": "{{baseUrl}}/api/v1/tasks/{{taskId}}/approve"
       }
@@ -57,7 +95,7 @@
       "name": "Task events",
       "request": {
         "method": "GET",
-        "header": [ { "key": "X-User-Id", "value": "manager" }, { "key": "X-Role", "value": "SUPERVISOR" } ],
+        "auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{customerToken}}", "type": "string" } ] },
         "url": "{{baseUrl}}/api/v1/tasks/{{taskId}}/events"
       }
     }

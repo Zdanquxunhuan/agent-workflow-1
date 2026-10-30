@@ -1,0 +1,82 @@
+# Isolated LOCAL integration environment. Every order/customer/payment is synthetic.
+# Does not reuse, reset or modify the existing demo MySQL volume.
+services:
+  agent-db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: integration_root_local_only
+      MYSQL_DATABASE: workflow_integration
+      MYSQL_USER: workflow
+      MYSQL_PASSWORD: integration_agent_local_only
+    ports: ["127.0.0.1:3310:3306"]
+    volumes: ["agent_integration_data:/var/lib/mysql"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+    mem_limit: 768m
+
+  business-db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: integration_root_local_only
+      MYSQL_DATABASE: local_business
+      MYSQL_USER: business
+      MYSQL_PASSWORD: business_local_only
+    ports: ["127.0.0.1:3308:3306"]
+    volumes: ["business_integration_data:/var/lib/mysql"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+    mem_limit: 768m
+
+  business-system:
+    build: ./business-system
+    environment:
+      JAVA_TOOL_OPTIONS: -Xmx256m
+      BUSINESS_DB_URL: jdbc:mysql://business-db:3306/local_business?connectionTimeZone=UTC&useSSL=false&allowPublicKeyRetrieval=true
+      BUSINESS_API_KEY: local-business-service-key-change-before-production
+      BUSINESS_OPERATIONS_KEY: local-business-operations-key-separate-from-agent
+      BUSINESS_SEED: "true"
+      BUSINESS_SETTLEMENT_DELAY_SECONDS: "3"
+      BUSINESS_TIMEOUT_AFTER_ACCEPT_MS: "6000"
+    ports: ["127.0.0.1:8091:8091"]
+    depends_on:
+      business-db: {condition: service_healthy}
+    mem_limit: 512m
+
+  agent-app:
+    build: .
+    user: "10001"
+    environment:
+      JAVA_TOOL_OPTIONS: -Xmx256m
+      AGENT_PERSISTENCE: jdbc
+      MYSQL_URL: jdbc:mysql://agent-db:3306/workflow_integration?connectionTimeZone=UTC&useSSL=false&allowPublicKeyRetrieval=true
+      MYSQL_USER: workflow
+      MYSQL_PASSWORD: integration_agent_local_only
+      COMMERCE_SEED_DEMO_DATA: "false"
+      COMMERCE_GATEWAY: http
+      COMMERCE_HTTP_BASE_URL: http://business-system:8091
+      COMMERCE_HTTP_API_KEY: local-business-service-key-change-before-production
+      COMMERCE_HTTP_WRITES_ENABLED: "true"
+      COMMERCE_HTTP_TIMEOUT_SECONDS: "2"
+      COMMERCE_DISPATCHER_FIXED_DELAY_MS: "500"
+      COMMERCE_DISPATCHER_RETRY_DELAY_SECONDS: "1"
+      COMMERCE_DISPATCHER_MAX_ATTEMPTS: "6"
+      COMMERCE_DISPATCHER_LEASE_SECONDS: "30"
+      AGENT_AUTH_MODE: local
+      AGENT_AUTH_LOCAL_SECRET: integration-local-jwt-secret-never-for-production
+      AGENT_AUTH_DEV_TOKEN_ENABLED: "true"
+      DEEPSEEK_ENABLED: "false"
+    ports: ["127.0.0.1:18090:8080"]
+    depends_on:
+      agent-db: {condition: service_healthy}
+      business-system: {condition: service_started}
+    mem_limit: 512m
+
+volumes:
+  agent_integration_data:
+  business_integration_data:

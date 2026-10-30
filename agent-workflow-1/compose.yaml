@@ -1,3 +1,6 @@
+# Local demo stack only: it enables demo seed data and the dev token endpoint.
+# Production must run with SPRING_PROFILES_ACTIVE=prod, external OIDC, seed disabled,
+# dev tokens off, and a non-default database password.
 services:
   app:
     build: .
@@ -6,30 +9,39 @@ services:
       DEEPSEEK_ENABLED: "false"
       DEEPSEEK_API_KEY: ""
       AGENT_PERSISTENCE: jdbc
-      POSTGRES_URL: jdbc:postgresql://postgres:5432/workflow_agent
-      POSTGRES_USER: workflow
-      POSTGRES_PASSWORD: workflow_dev_only
+      MYSQL_URL: jdbc:mysql://mysql:3306/workflow_agent?useUnicode=true&characterEncoding=utf8&connectionTimeZone=UTC&useSSL=false&allowPublicKeyRetrieval=true
+      MYSQL_USER: workflow
+      MYSQL_PASSWORD: workflow_dev_only
+      COMMERCE_SEED_DEMO_DATA: "true"
+      COMMERCE_DISPATCHER_ENABLED: "true"
+      # Local demo authentication. Never enable the dev token endpoint in production.
+      AGENT_AUTH_MODE: local
+      AGENT_AUTH_LOCAL_SECRET: local-dev-only-change-me-32-bytes-minimum
+      AGENT_AUTH_DEV_TOKEN_ENABLED: "true"
     ports:
       - "8080:8080"
     depends_on:
-      postgres:
+      mysql:
         condition: service_healthy
 
-  postgres:
-    image: postgres:16-alpine
+  mysql:
+    image: mysql:8.0
     environment:
-      POSTGRES_DB: workflow_agent
-      POSTGRES_USER: workflow
-      POSTGRES_PASSWORD: workflow_dev_only
+      MYSQL_ROOT_PASSWORD: root_dev_only
+      MYSQL_DATABASE: workflow_agent
+      MYSQL_USER: workflow
+      MYSQL_PASSWORD: workflow_dev_only
+      TZ: Asia/Shanghai
     ports:
-      - "5432:5432"
+      # Host 3306 is often occupied by a local MySQL; expose the demo on 3307.
+      - "3307:3306"
     volumes:
-      - workflow_pgdata:/var/lib/postgresql/data
+      - workflow_mysql:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U workflow -d workflow_agent"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uworkflow", "-pworkflow_dev_only", "--silent"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 20
 
 volumes:
-  workflow_pgdata:
+  workflow_mysql:
