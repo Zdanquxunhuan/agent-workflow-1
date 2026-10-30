@@ -46,19 +46,16 @@ public class ChatAuditService {
                              String idempotencyKey, String traceId) {
         String normalizedKey = idempotencyKey == null || idempotencyKey.isBlank()
                 ? null : idempotencyKey.trim();
-        if (normalizedKey != null) {
-            AgentTask previous = tasks.byIdempotency(userId, normalizedKey);
-            if (previous != null) {
-                if (previous.status() == TaskStatus.SUCCEEDED) {
-                    return new ChatSession(previous.id(), userId, role, traceId, true, previous.view());
-                }
-                throw BusinessException.of("IDEMPOTENCY_CONFLICT", "Chat request is already in progress or failed");
+        // The repository unique constraint resolves concurrent retries; do not
+        // pre-check here or two instances can both pass before either inserts.
+        AgentTask candidate = new AgentTask(UUID.randomUUID().toString(), userId, role, request, normalizedKey, Instant.now());
+        AgentTask task = tasks.create(candidate);
+        if (task != candidate) {
+            if (task.status() == TaskStatus.SUCCEEDED) {
+                return new ChatSession(task.id(), task.userId(), task.role(), traceId, true, task.view());
             }
+            throw BusinessException.of("IDEMPOTENCY_CONFLICT", "Chat request is already in progress or failed");
         }
-
-        AgentTask task = new AgentTask(UUID.randomUUID().toString(), userId, role, request, normalizedKey, Instant.now());
-        tasks.save(task);
-        tasks.bindIdempotency(task);
         audit(task, traceId, "TASK_CREATED", userId, null, "Chat task created", Map.of("entrypoint", "agent.chat"));
         transition(task, TaskStatus.PLANNING, traceId, userId);
         audit(task, traceId, "CHAT_STARTED", userId, null, "Read-only chat started", Map.of());
