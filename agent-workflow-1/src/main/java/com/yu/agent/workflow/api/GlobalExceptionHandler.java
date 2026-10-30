@@ -1,6 +1,8 @@
 package com.yu.agent.workflow.api;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -14,6 +16,8 @@ import java.util.stream.Collectors;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<Void>> validation(MethodArgumentNotValidException ex, HttpServletRequest request) {
         String message = ex.getBindingResult().getFieldErrors().stream()
@@ -32,11 +36,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> business(BusinessException ex, HttpServletRequest request) {
         HttpStatus status = switch (ex.code()) {
+            case "UNAUTHORIZED" -> HttpStatus.UNAUTHORIZED;
             case "FORBIDDEN" -> HttpStatus.FORBIDDEN;
             case "TASK_NOT_FOUND", "NOT_FOUND" -> HttpStatus.NOT_FOUND;
-            case "MODEL_UNAVAILABLE" -> HttpStatus.SERVICE_UNAVAILABLE;
+            case "MODEL_UNAVAILABLE", "DOWNSTREAM_UNAVAILABLE" -> HttpStatus.SERVICE_UNAVAILABLE;
             case "RESULT_NOT_VERIFIED" -> HttpStatus.CONFLICT;
-            case "INVALID_STATE", "APPROVAL_REQUIRED", "IDEMPOTENCY_CONFLICT" -> HttpStatus.CONFLICT;
+            case "INVALID_STATE", "APPROVAL_REQUIRED", "IDEMPOTENCY_CONFLICT", "CONFLICT",
+                 "REFUND_NOT_ALLOWED", "ADDRESS_CHANGE_NOT_ALLOWED" -> HttpStatus.CONFLICT;
             default -> HttpStatus.BAD_REQUEST;
         };
         return response(status, ex.code(), ex.getMessage(), request);
@@ -49,6 +55,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> unknown(Exception ex, HttpServletRequest request) {
+        log.error("Unhandled request failure on {} {}", request.getMethod(), request.getRequestURI(), ex);
         return response(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Request could not be completed", request);
     }
 
