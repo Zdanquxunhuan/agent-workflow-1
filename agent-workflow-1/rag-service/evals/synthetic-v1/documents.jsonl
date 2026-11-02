@@ -1,0 +1,20 @@
+{"id": "shipped-refund", "tenant": "demo", "title": "已发货退款", "text": "已发货订单申请退款必须经主管审批。收到退回商品并验收后，财务在三个工作日内原路退款。"}
+{"id": "unshipped-refund", "tenant": "demo", "title": "未发货退款", "text": "未发货订单在支付后两小时内可由客服直接取消并原路退款，无需主管审批。超过两小时需要主管审批。"}
+{"id": "address-change", "tenant": "demo", "title": "修改收货地址", "text": "未发货订单可以由客服修改收货地址。已发货订单禁止直接改地址，需要联系承运商申请拦截并通知客户。"}
+{"id": "invoice", "tenant": "demo", "title": "发票申请", "text": "电子发票在订单完成后七天内可申请，开票成功后发送至订单联系邮箱。已开具的发票需要红冲后才能修改抬头。"}
+{"id": "duplicate-payment", "tenant": "demo", "title": "重复扣款", "text": "同一订单重复扣款时，财务核对支付流水号及银行回执。确认重复后退还多收款项，保留原订单，禁止再次发货。"}
+{"id": "payment-code", "tenant": "demo", "title": "支付令牌错误 ERR-1042", "text": "ERR-1042 表示支付令牌已经过期。刷新支付令牌后重试；不要再次创建订单。ERR-1043 则需要检查商户签名。"}
+{"id": "stock-code", "tenant": "demo", "title": "库存错误 INV_204", "text": "INV_204 表示可销售库存不足。释放过期预占后重新检查库存，库存仍不足时提示补货，不允许把库存设置为负数。"}
+{"id": "sku-manual", "tenant": "demo", "title": "产品 AX-900 安装说明", "text": "AX-900 路由器支持双频 Wi-Fi，首次配置需通过网线连接管理端口。默认管理地址为 192.168.50.1，首次登录必须修改密码。"}
+{"id": "sku-pro", "tenant": "demo", "title": "产品 AX-900-PRO 安装说明", "text": "AX-900-PRO 支持 PoE 供电和三个网络端口。管理地址为 192.168.60.1；恢复出厂需要按住 Reset 按钮十秒。"}
+{"id": "shipping", "tenant": "demo", "title": "普通包裹配送时效", "text": "国内标准配送在出库后预计三到五个工作日送达。偏远地区预计七到十个工作日。配送延误超过五天由物流专员升级承运商工单。"}
+{"id": "return-damage", "tenant": "demo", "title": "运输破损退换", "text": "客户发现运输破损时，应在签收后四十八小时内提交包装与商品照片。客服确认破损后可安排免费换货，运费由平台承担。"}
+{"id": "warranty", "tenant": "demo", "title": "保修范围", "text": "电子产品保修期为签收日起一年。人为进水、擅自拆机造成的损坏不在免费保修范围，可提供付费维修。"}
+{"id": "sso", "tenant": "demo", "title": "单点登录故障", "text": "SSO 登录出现时钟偏差错误时，先同步服务器 NTP 时间，再清理过期会话。连续登录失败五次会锁定账号十五分钟。"}
+{"id": "api-rate", "tenant": "demo", "title": "API 限流", "text": "API 每个租户每分钟最多接受一百二十次请求，最多允许两条并发检索。超过限制返回 HTTP 429 和 Retry-After，客户端应使用指数退避。"}
+{"id": "backup", "tenant": "demo", "title": "数据库备份策略", "text": "生产数据库每天凌晨执行全量备份，同时持续归档 WAL。恢复操作在隔离环境演练，不得直接覆盖线上数据。每月验证时间点恢复。"}
+{"id": "rbac", "tenant": "demo", "title": "知识库权限管理", "text": "知识库 reader 可以检索和查看引用，contributor 还可以上传文档，manager 可以管理成员。撤销权限后新检索和引用访问立即被拒绝。"}
+{"id": "english", "tenant": "demo", "title": "API credential rotation", "text": "Rotate service credentials every ninety days. Create a new key, deploy it to clients, verify traffic, then revoke the old key. Never print credentials in logs."}
+{"id": "leave", "tenant": "demo", "title": "年假申请", "text": "员工年假需要提前三个工作日在系统提交，由直属经理审批。病假可先通知经理，返回工作岗位后补交证明。"}
+{"id": "restricted", "tenant": "demo", "title": "内部项目 ORION-88", "text": "ORION-88 项目内部预算为九百万元，项目负责人是陈主管。仅指定成员可阅读。", "allowed_subjects": ["admin"]}
+{"id": "other-tenant", "tenant": "other", "title": "其他租户定价规则", "text": "ORION-88 定价为每年八万元，仅适用于其他租户的合同。"}

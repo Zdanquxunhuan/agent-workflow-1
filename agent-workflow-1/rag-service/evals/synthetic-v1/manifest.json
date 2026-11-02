@@ -1,0 +1,12 @@
+{
+  "id": "synthetic-retrieval-v1",
+  "label_source": "AI-authored synthetic developer fixtures; not independently reviewed business labels",
+  "document_count": 20,
+  "query_count": 44,
+  "qrels": "Document-level graded relevance: 2=direct supporting source. Empty qrels do not imply implemented answer refusal.",
+  "splits": "development and frozen wording holdout share a corpus; neither is a production acceptance set",
+  "sha256": {
+    "documents.jsonl": "27d111ecdd71ae12b6df597235358e22f1bb47cd16d1a4435138e3f1755be81d",
+    "queries.jsonl": "efa970a932ebe693a70a473c631e77a7ffb990fa567f94f6d05ef7c6e3a5656f"
+  }
+}

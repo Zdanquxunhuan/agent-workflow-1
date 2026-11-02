@@ -21,7 +21,10 @@ pytestmark = pytest.mark.skipif(os.environ.get("RAG_INTEGRATION") != "1", reason
 def client(monkeypatch):
     def vectors(texts):
         return [[1.0] + [0.0] * 1023 for _ in texts]
-    monkeypatch.setattr("app.main.embed", vectors)
+    async def query_vector(*args):
+        return vectors([""])[0]
+    monkeypatch.setattr("app.retrieval.models.embed_query", query_vector)
+    monkeypatch.setattr(settings(), "retrieval_profile", "dense-v2")
     monkeypatch.setattr(worker, "embed", vectors)
     monkeypatch.setattr(worker, "chunk_text", lambda text: [{"text": text, "token_count": len(text),
                         "content_hash": hashlib.sha256(text.encode()).hexdigest()}])
@@ -129,9 +132,9 @@ def test_pool_does_not_retain_tenant_and_rls_rejects_cross_tenant_write(client):
 
 def test_embedding_outage_is_not_reported_as_empty_evidence(client, monkeypatch):
     auth, kb, _, _ = setup_document(client)
-    def fail(_):
+    async def fail(*args):
         raise RagError("EMBEDDING_UNAVAILABLE", "unavailable", 503, True)
-    monkeypatch.setattr("app.main.embed", fail)
+    monkeypatch.setattr("app.retrieval.models.embed_query", fail)
     response = client.post("/api/v1/search", json={"query": "退款", "knowledge_base_ids": [kb]}, headers=auth)
     assert response.status_code == 503
     assert response.json()["code"] == "EMBEDDING_UNAVAILABLE"
@@ -180,11 +183,11 @@ def test_revocation_during_query_encoding_prevents_evidence_return(client, monke
     worker.ingest("demo", result["job_id"])
     client.put(f"/api/v1/knowledge-bases/{kb}/acl", json={"subject": "alice", "role": "reader"}, headers=auth)
     alice = headers(client, "alice")
-    def revoke_then_embed(texts):
+    async def revoke_then_embed(*args):
         with transaction("demo") as conn:
             conn.execute("DELETE FROM kb_acl WHERE kb_id=%s AND subject='alice'", (kb,))
-        return [[1.0] + [0.0] * 1023]
-    monkeypatch.setattr("app.main.embed", revoke_then_embed)
+        return [1.0] + [0.0] * 1023
+    monkeypatch.setattr("app.retrieval.models.embed_query", revoke_then_embed)
     response = client.post("/api/v1/search", headers=alice, json={"query": "退款", "knowledge_base_ids": [kb]})
     assert response.status_code == 404
 

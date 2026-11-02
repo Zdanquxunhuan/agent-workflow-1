@@ -1,8 +1,8 @@
 # RAG 生产化功能清单与实施计划
 
-更新时间：2026-11-02。**当前已完成可在本地运行的“文档上传 → 异步入库 → 授权检索 → 引用查看”链路，尚未达到生产发布条件。** M0/M1 已有基础实现，M2 第一条链路通过真实 BGE-M3/MQ/PG/S3 验收，M4/M5 的部分权限和接入能力提前落地。
+更新时间：2026-11-02（Version 2）。**当前已实现文档异步入库、授权混合检索、独立重排、证据预算与检索诊断，尚未达到生产发布条件。** M3 的 N01–N03 工程能力已落地；业务标注验收、rewrite、父块、内容更新、回答与完整 Agent 租户改造仍待完成。
 
-状态依据：[实现与运行说明](docs/rag/implementation.md)、[验收记录](docs/rag/verification-2026-11-02.md)、[ADR-001](docs/rag/adr-001-service-boundary.md)。本地验收包含 73 项 Java 测试、14 项 Python 测试、真实模型端到端烟测及页面/Java HTTP 联调；这些结果不替代检索质量、压力、HA 和恢复演练。
+状态依据：[运行说明](docs/rag/implementation.md)、[V1 历史验收](docs/rag/verification-2026-11-02.md)、[V2 验收](docs/rag/verification-v2-2026-11-02.md)、[ADR-002](docs/rag/adr-002-hybrid-retrieval.md)。V2 增加隔离评测 runner、合成语料、检索与权限回归；具体实测边界以 V2 记录为准，不替代业务质量、压力、HA 和恢复验收。
 
 本文 `[x]` 表示该条明确范围已实现，验证边界以验收记录为准；`[ ]` 表示仍有工作未完成。涉及多项能力的总项标为“部分完成”，不因基础能力落地而把整个生产阶段勾选完成。容量、时延和质量指标仍是待实测的首发目标。
 
@@ -19,11 +19,11 @@ FastAPI 是 API 框架，不会自动解决生产可靠性。已把解析、切�
 | [API 与权限](rag-service/app/main.py)、[身份校验](rag-service/app/auth.py) | KB 创建/列表、用户 ACL、文档读权限收窄、引用/原件鉴权、开发登录、OIDC 验签代码 | 实际企业 IdP 联调、组/服务账号、正式委托、策略管理 |
 | [数据库迁移](rag-service/migrations/versions/0001_initial.py) | PG/pgvector、租户复合约束与 FORCE RLS、分离运行角色、首版文档原子发布 | 内容更新、KB generation manifest、CAS、影子重建、回滚与 GC |
 | [解析](rag-service/app/parsing.py)、[Worker](rag-service/app/worker.py)、[Relay](rag-service/app/dispatcher.py) | 四类基础格式、token 切块、Outbox/MQ、租约/心跳/fencing、有限重试、取消 | OCR/HTML/质量审核、解析沙箱、阶段产物检查点、DLQ 运维与实进程故障演练 |
-| [推理服务](rag-inference/server.py) | 固定 revision 的 BGE-M3，真实 1024 维 dense，CPU 常驻推理、预热、就绪检查 | 动态 batch、GPU 容量基准、线上与导入资源隔离、完整 profile 注册 |
-| [检索 API](rag-service/app/main.py) | 当前有效版本与权限过滤后的精确向量检索、可鉴权引用 | 中文词法、hybrid/RRF、rerank、rewrite、上下文组装、LLM 回答 |
-| [管理页面](rag-service/app/static/index.html) | 原生 HTML/CSS/JS，单文件上传、状态轮询、搜索、引用、用户授权/撤销 | 批量上传、解析预览、版本管理、问答/SSE、反馈与配额 |
+| [Embedding](rag-inference/server.py)、[Reranker](rag-inference/reranker_server.py) | 两个固定 revision 的真实 CPU 模型、常驻/预热/就绪、reranker 文件大小/hash 校验 | 动态 batch、GPU 容量基准、线上与导入资源隔离、完整 profile 注册 |
+| [检索管线](rag-service/app/retrieval/pipeline.py) | dense-exact + 中文词法/编号、RRF、独立 rerank、去重/预算、权限复核、deadline/限流/明确降级 | rewrite、父块/相邻块、业务质量调优、规模压测、LLM 回答 |
+| [管理页面](rag-service/app/static/index.html) | 原生 HTML/CSS/JS，单文件上传、状态轮询、四种检索 profile、manager 诊断、引用、用户授权/撤销 | 批量上传、解析预览、版本管理、问答/SSE、反馈与配额 |
 | [Java HTTP 客户端](src/main/java/com/yu/agent/workflow/application/HttpRagKnowledgeSearchClient.java)、[查询入口](src/main/java/com/yu/agent/workflow/api/KnowledgeController.java) | local/http 适配、可信 JWT 检查、完整响应 deadline/大小限制、无状态桥接、禁止故障回 demo | 任务/审计/幂等表的租户迁移、持久授权委托、聊天引用约束、熔断与 trace |
-| [Compose](compose.rag.yaml)、[测试](rag-service/tests/test_integration.py)、[真实验收](rag-service/scripts/acceptance.py) | 本地真实基础设施与模型运行，隔离测试库/bucket，权限和可靠性回归 | 独立 CI、质量评测集、压力/恢复演练、HA/PITR、监控告警、生产发布报告 |
+| [Compose](compose.rag.yaml)、[测试](rag-service/tests/test_integration.py)、[真实验收](rag-service/scripts/acceptance.py) | 本地真实基础设施与模型运行，隔离测试库/bucket，权限和可靠性回归 | 独立 CI、经审核业务质量集、压力/恢复演练、HA/PITR、监控告警、生产发布报告 |
 
 已有 Java JWT、工具白名单、审批、审计和 Outbox 的设计继续保留。Java 任务/聊天审计目前没有完整租户边界，远程 RAG 对这些入口返回 `RAG_TASK_TENANCY_REQUIRED`，避免证据进入未隔离的任务存储；RAG 达标也不代表整个 Agent 已满足生产要求。
 
@@ -40,14 +40,14 @@ FastAPI 是 API 框架，不会自动解决生产可靠性。已把解析、切�
 | R03 | P0 | 结构解析、token 切块、来源坐标、质量校验 | 部分完成：token 切块、PDF 页号、正文 hash、空内容拒绝；结构/质量报告与审核待补 |
 | R04 | P0 | MQ、持久状态、Outbox、幂等、租约、重试、死信与恢复 | 部分完成：单 job 可靠入库链路已通；阶段检查点、DLQ、完整故障演练待补 |
 | R05 | P0 | BGE-M3、pgvector、版本化索引与真实模型验收 | 部分完成：真实 dense 与文档首版原子发布已验收；KB 代际/多 profile/重建待补 |
-| R06 | P1 | rewrite、中文词法、dense、融合、rerank、上下文 | 部分完成：仅 dense-exact；其余检索质量能力待实现 |
+| R06 | P1 | rewrite、中文词法、dense、融合、rerank、上下文 | V2 已实现 hybrid/RRF/rerank、完整块去重与预算；rewrite、父块/相邻块和业务质量验收待补 |
 | R07 | P0 | 无证据拒答、引用、生成前后权限；区分故障与无结果 | 部分完成：检索引用、重授权、空命中/故障区分已有；回答与生成权限复核待补 |
 | R08 | P0 | 内容更新、原子发布、删除/ACL 即时生效、迟到任务防护 | 部分完成：首版发布、逻辑删除、撤权、迟到发布防护已有；更新/回滚/物理 GC 待补 |
 | R09 | P1 | OCR、表格结构、解析预览、复杂文档重跑 | 部分完成：基础 DOCX 表格转文本、失败重试已有；OCR/复杂结构与审核预览待补 |
-| R10 | P1 | KB、上传、进度、版本、权限、检索调试、问答、反馈 | 部分完成：基础管理页面已联调；版本、完整调试、问答/反馈待补 |
+| R10 | P1 | KB、上传、进度、版本、权限、检索调试、问答、反馈 | 部分完成：基础管理页面已联调；V2 已有 manager 检索诊断；版本、问答/反馈待补 |
 | R11 | P1 | 问答、SSE、多轮、独立检索 API、Java Agent 与契约测试 | 部分完成：检索 API 与 Java 无状态桥接已通；完整任务/聊天接入和问答待补 |
-| R12 | P0 | 限流、配额、超时、隔离、审计、敏感处理与降级 | 部分完成：输入/响应上限、模型超时/并发锁、基础审计已有；配额、隔离、脱敏策略与降级待补 |
-| R13 | P0 | 标注集、质量评测、权限回归、故障/负载演练 | 部分完成：确定性回归与真实端到端烟测通过；质量数据集、系统故障与负载验收待补 |
+| R12 | P0 | 限流、配额、超时、隔离、审计、敏感处理与降级 | 部分完成：输入/响应上限、模型超时/并发锁、基础审计已有；V2 已有 PG 租户检索限流、12 秒预算和明确降级；上传/费用配额、算力隔离及完整脱敏策略待补 |
+| R13 | P0 | 标注集、质量评测、权限回归、故障/负载演练 | 部分完成：确定性回归与真实端到端烟测通过；V2 已有 20 文档/44 题合成评测；经审核业务集、系统故障与负载验收待补 |
 | R14 | P0 | 部署、监控、备份恢复、灰度回滚、runbook、配置门禁 | 部分完成：Compose、探针、基本配置门禁已有；生产运维与发布验收待补 |
 | R15 | P2 | 企业连接器、增量同步、权限同步与对账 | 未开始 |
 | R16 | P2 | BM25/sparse、多向量、问题拆解、多模态/GraphRAG | 未开始 |
@@ -56,7 +56,7 @@ FastAPI 是 API 框架，不会自动解决生产可靠性。已把解析、切�
 
 ## 3. 架构与技术决策
 
-下图是完整生产目标。当前已运行 FastAPI、PG/pgvector、私有 MinIO、Outbox Dispatcher、RabbitMQ、单个 Celery ingestion Worker 和独立 CPU embedding 服务；统一 OIDC 入口、独立阶段 Worker、reranker、LLM、Redis 与观测平台尚未部署。
+下图是完整生产目标。当前已运行 FastAPI、PG/pgvector、私有 MinIO、Outbox Dispatcher、RabbitMQ、单个 Celery ingestion Worker 和独立 CPU embedding 服务；V2 增加独立 CPU reranker；统一 OIDC 入口、独立阶段 Worker、LLM、Redis 与观测平台尚未部署。
 
 ```mermaid
 flowchart TD
@@ -93,9 +93,9 @@ flowchart TD
 | 异步 | RabbitMQ + Celery；PG jobs 表为状态真相 | 不以 Celery result backend 代替任务业务状态；不承诺 exactly-once |
 | 文档解析 | 已用 pypdf、python-docx 与 UTF-8 文本解析 | 复杂 PDF/DOCX 后续评估 Docling；OCR 与质量矩阵待实现 |
 | Embedding | 已用 Transformers AutoModel/AutoTokenizer 独立服务化 | 固定 BGE-M3 revision，CLS pooling + L2 归一化，CPU dense；未使用 FlagEmbedding |
-| Rerank | 计划 `BAAI/bge-reranker-v2-m3` | 尚未实现；与 embedding 分别配置、限流和观测 |
-| 词法检索 | 计划中文预分词 + PostgreSQL `tsvector`/GIN | 尚未实现；该方案不称为 BM25，编号走精确匹配通道 |
-| 融合 | 计划 RRF，参数版本化 | 尚未实现；避免直接相加不同通道不可比的原始分数 |
+| Rerank | 已用固定 revision 的 `BAAI/bge-reranker-v2-m3` | 独立 CPU float32、单并发、10 候选/512 tokens（模型接口上限 20）、校验权重、超时降级 |
+| 词法检索 | 已用版本化 Jieba + PostgreSQL `tsvector`/GIN | `ts_rank_cd`，不称为 BM25；编号完整匹配，旧数据幂等回填 |
+| 融合 | 已用 RRF，四种固定 profile 与 fingerprint | 各路最多 50 条、按 chunk 去重；不相加原始分数 |
 | 回答 | 计划可配置 LLM Provider，初期可对接现有 DeepSeek 供应方 | 尚未实现；Python 自己实现适配层，不通过 Java 再反调一次模型 |
 | 前端 | 已用原生 HTML/CSS/JS，由 FastAPI 同源提供 | 当前没有 `rag-web`；复杂交互确有需要时再迁移 React/TypeScript |
 | 运维 | Docker Compose 开发/集成；生产容器平台或已有平台 | 是否使用 Kubernetes 取决于现有运维能力；必须具备多副本与恢复能力 |
@@ -244,7 +244,7 @@ manifest 引用不可变 chunk_set，未变化的文档复用旧产物，不重�
 
 ## 6. 在线检索与回答链路
 
-当前只有“JWT/成员与 KB 鉴权 → BGE query embedding → 再次鉴权 → 当前有效版本的 dense-exact SQL 检索 → 原文/版本/引用返回”。query 最多 2000 字符、单次最多 5 个 KB、top_k 为 1–20；token 超限明确返回 422。以下完整流水线中的 rewrite、词法/RRF、rerank、父块扩展、LLM 与会话均待实现。
+V2 当前链路为“鉴权/PG 租户限流 → NFKC 规范化 → dense、中文词法与编号并行召回 → RRF → 权限复核 → 可选 rerank → 最终权限复核 → 完整块去重/预算 → 引用与诊断”。query 最多 2000 字符、5 个 KB、top_k 1–20。rewrite、父块扩展、LLM 与会话仍待实现。
 
 ```mermaid
 flowchart LR
@@ -264,7 +264,7 @@ flowchart LR
 
 ### 6.1 Query 优化与路由
 
-- [ ] Unicode、空白等规范化；保留原问题、时间、数字、否定词、产品型号和专有名词。查询长度、历史轮数有上限。
+- [x] NFKC/casefold/首尾空白规范化，中文 query 与文档使用同一分词规则，保留否定词和数字，完整字母数字编号另行提取；查询长度有限制。尚无会话历史或 LLM rewrite。
 - [x] 显式指定的 KB 逐个鉴权，向量化后重新确认成员与 KB 权限；未经授权的 KB 返回 404，查询不能扩大租户范围。
 - [ ] 接入模型路由后，模型建议只能缩小服务端允许列表，不能扩大授权范围。
 - [ ] 多 KB 的 active generation 若使用不同 embedding profile，按 profile 分组编码和检索，只在融合阶段合并排名；限制 KB 数、分组数和总候选预算，不比较不同模型的向量距离。
@@ -275,14 +275,14 @@ flowchart LR
 
 ### 6.2 Hybrid search 与 rerank
 
-后续 hybrid 建议初始参数：每条 query dense top-50、lexical top-50；合并去重后最多 100 条候选，融合后最多 30 条送 rerank，最后 6–10 块进入上下文。它们是评测起点，尚非当前参数；当前 `/search` 直接返回最多 20 个 dense 命中。
+V2 实际参数来自 [profiles.json](rag-service/app/retrieval/profiles.json)：dense/lexical/identifier 各 top-50，总候选最多 150 条，RRF k=60，融合后最多 10 条送 rerank，未重排尾部保持 RRF 顺序；最终最多 top_k（1–20）块、单文档最多 3 块、2400 BGE tokens（含每块 24 tokens 引用预留）。保留 dense-only、lexical-only、hybrid 与 hybrid-rerank 四种对照。
 
 1. **Dense**：BGE-M3 编码原问题/改写后做授权范围内语义召回，能覆盖同义表达。
-2. **词法**：中文用可替换、版本化的分词适配器和业务词典，候选实现先以 [Jieba](https://github.com/fxsjy/jieba) 离线验证；文档与 query 使用同一规则，构建 PostgreSQL `simple` 配置的 `tsvector` 并用 GIN 检索。增加 SKU、政策编号等独立精确字段。SQL 参数化、过滤字段允许列表、tsquery 安全构造，禁止把模型输出拼成 SQL 或未经校验的查询表达式。
+2. **词法**：中文用可替换、版本化的分词适配器和业务词典，V2 已固定 [Jieba](https://github.com/fxsjy/jieba) 0.42.1，HMM=false 与词典 hash 参与 profile；文档与 query 使用同一规则，构建 PostgreSQL `simple` 配置的 `tsvector` 并用 GIN 检索。增加 SKU、政策编号等独立精确字段。SQL 参数化、过滤字段允许列表、tsquery 安全构造，禁止把模型输出拼成 SQL 或未经校验的查询表达式。
 3. **明确技术名称**：PostgreSQL `ts_rank/ts_rank_cd` 是全文相关性排序，不能写成 BM25；默认配置也不能替代已验证的中文分词方案。见 [PostgreSQL text search ranking](https://www.postgresql.org/docs/current/textsearch-controls.html#TEXTSEARCH-RANKING)。
 4. **融合**：采用 RRF，初始 `sum(weight_i / (60 + rank_i))`；按检索通道控制权重，限制多条改写对单一通道的重复加权；保留每路 rank 和原始分数用于调试。
 5. **Rerank**：用 `BAAI/bge-reranker-v2-m3` 对 query/passage 重排，限制每对输入长度和候选数。score 即使经过 sigmoid，也不当作“答案正确概率”；拒答阈值通过业务数据校准。见 [reranker 模型卡](https://huggingface.co/BAAI/bge-reranker-v2-m3)。
-6. **上下文**：同文档相邻块合并、近重复去重、限制单文档占比，必要时做多样性选择。父块扩展也执行权限过滤。上下文按模型 tokenizer 计数，先预留 system、历史和输出预算。
+6. **上下文**：V2 已做内容 hash 精确去重、单文档上限、BGE token 预算，完整保留原块引用。相邻块合并、近重复/父块、多样性与回答模型 system/历史/输出预算仍待实现。
 
 BGE-M3 sparse 与普通全文检索是不同通道。后续若引入 sparse/BM25/多向量，需要单独设计索引、版本、ACL、更新和压测，不能因为模型能输出就算系统已经支持。
 
@@ -301,7 +301,7 @@ BGE-M3 sparse 与普通全文检索是不同通道。后续若引入 sparse/BM25
 
 ### 6.4 超时、降级与成本
 
-当前 embedding 故障返回可重试 503，非法/超长输入返回 422，无证据返回空 hits；没有词法/缓存/LLM 降级通道。Java 的 KB 列表与检索共用默认 15 秒完整响应 deadline，不回退演示数据。下表和检索 3 秒/回答 30 秒是后续目标，不是当前 Python API 的全链路预算。
+V2 检索在身份认证后共享 12 秒 deadline，embedding 4 秒、rerank 6 秒子预算；正常查询返回 status=ok，允许的模型故障返回 status=degraded 与 degraded_components。dense-only 模型故障返回 503；hybrid 仅在当前授权范围词法索引完整时允许 embedding 故障回退；rerank 失败回退 RRF。总预算耗尽返回 504，PG/权限故障失败关闭。Java 的 KB 列表与检索仍共用默认 15 秒 deadline。下面包含尚未实现的 rewrite/LLM/Redis 目标行为。
 
 | 故障 | 行为 |
 | --- | --- |
@@ -314,7 +314,7 @@ BGE-M3 sparse 与普通全文检索是不同通道。后续若引入 sparse/BM25
 | MQ 不可用 | 已持久化任务保持待投递；达到积压/配额上限拒绝新上传，查询已发布知识仍可用 |
 | Redis 不可用 | 查询缓存旁路；配额无法可靠计量时采用保守限额或拒绝高成本请求 |
 
-初始检索 deadline 3 秒，rewrite/embedding/rerank 各有子预算；回答整体 deadline 30 秒。总预算向下游传播，允许的重试次数和时间都包含其中。按租户限制 QPS、上传量、索引 token、并发、每日 LLM token 与费用，接近限额告警；查询成功率与“完整管线成功率”分开统计，避免长期降级被当作健康。
+生产目标检索 deadline 3 秒、回答整体 30 秒，仍需硬件/压测验证；当前 CPU 开发配置检索为 12 秒。总预算向下游传播，允许的重试次数和时间都包含其中。按租户限制 QPS、上传量、索引 token、并发、每日 LLM token 与费用，接近限额告警；查询成功率与“完整管线成功率”分开统计，避免长期降级被当作健康。
 
 ## 7. 权限、身份与数据安全
 
@@ -350,7 +350,7 @@ BGE-M3 sparse 与普通全文检索是不同通道。后续若引入 sparse/BM25
 
 ### 7.3 撤权、缓存与审计
 
-- [x] 当前 KB/文档 ACL 和成员状态从 PG 读取；搜索向量化后、原件下载后重新确认权限；KB 撤权在途查询回归通过。文档 ACL 使用 expected_revision，成员/KB 尚无统一 revision 体系。
+- [x] 当前 KB/文档 ACL 和成员状态从 PG 读取；搜索在重排前/输出前（包括 debug）、原件下载后重新确认权限；KB 撤权在途查询回归通过。文档 ACL 使用 expected_revision，成员/KB 尚无统一 revision 体系。
 - [x] 当前无共享答案/检索结果缓存；审计记录上传、发布、权限变更、删除、下载和任务管理；页面用 textContent 展示正文并设置 CSP/no-store。
 - [ ] ACL/成员关系以权威存储 revision 为准；不能只靠长效 JWT 中的旧角色实现立即撤权。外部 IdP 组同步需要确定时延，在同步完成前不能声称源站撤权已经即时生效。
 - [ ] 如后续引入检索/答案缓存，key 至少含 tenant、主体权限指纹、membership/ACL revision、KB content revision、generation、query、检索 profile；取缓存后仍检查当前权限和 tombstone。
@@ -381,7 +381,8 @@ BGE-M3 sparse 与普通全文检索是不同通道。后续若引入 sparse/BM25
 | `GET /jobs/{job_id}`、`POST .../retry`、`POST .../cancel` | 已实现 | 状态查询、失败重试、未发布任务取消 |
 | `GET /jobs/{job_id}/events` | 待实现 | SSE 进度；当前 UI 每 4 秒轮询 |
 | `POST /knowledge-bases/{kb_id}/publish`、`.../rollback` | 待实现 | generation 发布/回滚 |
-| `POST /search` | 已实现 | dense-exact 授权检索，返回证据与引用 |
+| `POST /search` | 已实现 | 四种 profile 授权检索，返回证据/引用、分数类型、耗时与降级状态 |
+| `POST /search/debug` | V2 已实现 | tenant admin/选中 KB manager 可查看已授权候选、通道排名、RRF/重排与预算 |
 | `GET /citations/{chunk_id}` | 已实现 | 引用 ID 为 chunk ID，验证当前版本与实时权限 |
 | `POST /answers`、`POST /answers/{id}/feedback` | 待实现 | 回答/SSE/反馈 |
 | `POST/GET /conversations`、`GET/DELETE /conversations/{id}` | 待实现 | 会话与消息管理 |
@@ -395,18 +396,20 @@ BGE-M3 sparse 与普通全文检索是不同通道。后续若引入 sparse/BM25
 {
   "query": "已经发货还能退吗？",
   "knowledge_base_ids": ["f5972e06-79d8-4dcd-809d-3b4a9efce9da"],
-  "top_k": 5
+  "top_k": 5,
+  "profile": "hybrid-rerank-v2"
 }
 ```
 
-当前返回结构示意：ID 和 distance 仅为示例；尚无 generation_ids、rewrite 或多路 timing 字段。distance 是 cosine 距离，不是答案正确概率。
+当前返回结构示意：ID/分数仅为示例；尚无 generation_ids/rewrite。distance 只对 dense 命中有值；score_type 为 rrf 或 reranker_logit，均不代表答案正确概率。实际响应含 profile_fingerprint、lexical_profile、reranker_profile、degraded_components、context_tokens、token_budget_basis 与 timings_ms，完整类型以 OpenAPI 为准。
 
 ```json
 {
   "request_id": "8bf08691-243f-4567-a827-dff6ed1563b6",
   "status": "ok",
-  "retrieval_profile_id": "dense-exact-v1",
+  "retrieval_profile_id": "hybrid-rerank-v2",
   "embedding_profile": "bge-m3-dense-v1",
+  "degraded_components": [],
   "hits": [{
     "document_id": "bd19be4b-649e-4f01-8068-893d9362a5c7",
     "document_version_id": "420699b3-ef61-4e47-9b9f-e36489a8fb26",
@@ -417,6 +420,8 @@ BGE-M3 sparse 与普通全文检索是不同通道。后续若引入 sparse/BM25
     "section": null,
     "content_hash": "示例：原文内容的SHA256",
     "distance": 0.25,
+    "score": 3.09,
+    "score_type": "reranker_logit",
     "citation": {
       "id": "9fe0d1e8-9b0c-4e4f-b636-81b61037da43",
       "url": "/api/v1/citations/9fe0d1e8-9b0c-4e4f-b636-81b61037da43",
@@ -483,13 +488,14 @@ BGE-M3 sparse 与普通全文检索是不同通道。后续若引入 sparse/BM25
 
 ### 9.3 评测与测试体系
 
-- [x] [核心测试](rag-service/tests/test_core.py) 与 [PG/S3 集成测试](rag-service/tests/test_integration.py) 共 14 项通过：隔离测试数据库/bucket，推理明确使用 stub，覆盖权限、幂等、发布、撤权、租约/fencing、Outbox 重放与故障区分。
+- [x] [核心测试](rag-service/tests/test_core.py) 与 [PG/S3 集成测试](rag-service/tests/test_integration.py) 共 37 项通过：隔离测试数据库/bucket，推理明确使用 stub，覆盖权限、幂等、发布、撤权、租约/fencing、Outbox 重放与故障区分。
 - [x] [真实验收脚本](rag-service/scripts/acceptance.py) 不替换模型或 MQ，验证中文上传、异步发布、不同措辞检索、引用、租户隔离、KB 授权与撤销。
-- [x] Java 全量 73 项测试通过；另有真实 HTTP 桥接和浏览器交互验收，见 [记录](docs/rag/verification-2026-11-02.md)。
+- [x] Java 全量 74 项测试通过；另有真实 HTTP 桥接和浏览器交互验收，见 [记录](docs/rag/verification-2026-11-02.md)。
 - [ ] 为测试接入独立 CI，并扩展文本 PDF/DOCX/复杂表格样本的格式能力矩阵；单条 Markdown 真实烟测不等同于全格式或质量验收。
 - [ ] 首批建立不少于 200 条经审核问题，逐步扩展到 500–1000 条；包含标准问法、口语、省略、多轮、错别字、编号、表格、跨段、多语言、无答案、版本冲突、恶意指令与权限变更。
 - [ ] 训练/调参集与冻结验收集分开；保存语料快照、授权主体、期望证据、正确拒答条件、标注版本。评测样本不得把真实敏感资料泄露到外部服务。
-- [ ] 比较 dense-only、lexical-only、hybrid、hybrid+rerank、加 rewrite 各版本；对每种题型报告质量、时延和费用，保留更简单的对照组。
+- [x] V2 四路评测 runner：dense-only、lexical-only、hybrid、hybrid+rerank；按题型/数据划分报告 Recall@20、nDCG@10、MRR、延迟、错误、降级与泄露。内置合成集，不等于业务验收。
+- [ ] 补齐经审核业务集、rewrite 对照、费用/并发/硬件基准。
 - [ ] 组件测试覆盖切块/引用映射、RRF、预算、状态机和 ACL；真实 PG/RabbitMQ/对象存储集成测试覆盖事务和恢复；模型 stub 只用于确定性测试，真实 BGE/LLM 另有验收集。
 - [ ] 故障演练覆盖：发 MQ 成功但未记账、提交结果前后 kill Worker、租约过期旧进程回来、重复/乱序事件、GPU OOM、模型 429、PG/MQ 切换、S3 不可用、Redis 故障。
 - [ ] 生命周期测试覆盖：更新时继续查询旧版、两人同时发布、重建期间增量更新、删除时任务仍运行、回滚仍服从撤权、备份恢复后删除不复活。
@@ -522,7 +528,7 @@ BGE-M3 sparse 与普通全文检索是不同通道。后续若引入 sparse/BM25
 | M0：约束与契约 | 部分完成：ADR、实际 OpenAPI JSON、依赖锁、固定模型 revision、真实 CPU 烟测 | 正式 IdP/委托、容量/硬件/预算配置、兼容矩阵、冻结评测集、BGE/reranker 基准 |
 | M1：服务骨架与隔离 | 基础已实现：FastAPI/PG/迁移/RLS、KB/ACL、探针、Compose、空库测试与配置门禁 | 实际 OIDC 联调、完整生产凭据隔离、最小权限、trace/结构化日志与 CI；不能据此认定生产认证已完成 |
 | M2：真实入库闭环 | 第一条本地链路已验收：上传→MQ→解析/切块→真实 BGE→PG→授权检索/引用 | 阶段产物恢复、DLQ、真实进程故障/乱序/重启演练、完整格式样本验收；预签名/批量上传另补 |
-| M3：检索质量 | 下一主线：当前仅 dense-exact 基线 | 评测集/runner、中文词法/编号、RRF、rerank、按需 rewrite、父块/预算、检索调试；以对照评测验收收益 |
+| M3：检索质量 | V2 已实现合成评测/runner、中文词法/编号、RRF、rerank、完整块预算与检索诊断 | 经审核业务集、按需 rewrite、父块/相邻块、质量与容量验收 |
 | M4：更新与治理 | 部分提前完成：首版原子发布、ACL 收窄/撤销、逻辑删除与迟到任务防护 | 新版本更新、manifest/CAS、并发合并、影子重建、回滚、GC/孤立对象回收、版本页面与恢复对账 |
 | M5：问答与 Agent | 部分提前完成：引用与 Java local/http 客户端、无状态真实查询桥接 | `/answers`、证据门禁、SSE/会话/反馈；Java 主体/任务/审计/幂等租户迁移、委托与恢复重授权，再开放完整聊天/任务 |
 | M6：文档与运行控制 | 部分基础：DOCX 表格文本、输入上限、单独 CPU 推理、基础审计/页面 | OCR/HTML/复杂版面/审核、解析沙箱、配额/费用/限流、在线与导入隔离、看板/告警、管理台补齐 |
@@ -538,18 +544,18 @@ BGE-M3 sparse 与普通全文检索是不同通道。后续若引入 sparse/BM25
 | T03：Docker 开发环境 | 基础已完成 | [Compose](compose.rag.yaml)：PG、MQ、MinIO、迁移/seed、API/Dispatcher/Worker/embedding；模型健康门禁 | 可选部署 profile、`.env.example`、正式 secrets 注入和镜像 digest/供应链准入 |
 | T04：初始迁移与租户约束 | 已完成本条范围 | [0001](rag-service/migrations/versions/0001_initial.py)、[运行角色初始化](rag-service/docker/init-roles.sql)，空库/隔离测试通过 | 后续新增表/字段用新迁移；生产最小权限收紧归 M1 |
 | T05：身份与权限 | 部分完成 | JWT/principal、OIDC-JWKS 验签代码、租户 RLS、KB/文档 ACL、越权回归 | 实际 IdP/组/service identity/委托联调；不能把开发 JWT 测试当成 OIDC 验收 |
-| T06：基准与评测 | 部分完成 | 固定模型/依赖、下载脚本、[真实中文烟测](rag-service/scripts/acceptance.py) 与验收记录 | JSONL 规范、冻结标注集、质量 runner、CPU/GPU 吞吐和 reranker 基准 |
+| T06：基准与评测 | 部分完成 | 固定模型/依赖、下载脚本、[真实中文烟测](rag-service/scripts/acceptance.py) 与验收记录 | 已交付 JSONL、合成集与四路 runner；仍需经审核冻结业务集、CPU/GPU 吞吐/并发基准 |
 | T07：第一条真实链路 | 已完成本地闭环验收 | 真实 MQ/BGE/PG/S3 上传检索、引用/权限、Java 桥接及页面检查 | 完整 M2 可靠性与生产指标仍未验收，不能视为整阶段生产完成 |
 
 ### 11.2 下一批执行顺序
 
-先完成 N01，再推进检索质量主线 N02–N04；N05 补强现有入库可靠性，随后完成 N06 生命周期与 N07 问答/完整 Agent。正式 IdP、密钥隔离、解析沙箱、配额和运维门禁贯穿后续迭代，在开放非可信文件或生产访问前必须完成。
+V2 已交付 N01 的评测工程、N02 和 N03 的基础能力；业务质量验收与父块扩展仍未完成。下一步结合逐题评测补 N01 的真实标注与 N04 的按需 rewrite；N05 补强现有入库可靠性，随后完成 N06 生命周期与 N07 问答/完整 Agent。正式 IdP、密钥隔离、解析沙箱、配额和运维门禁贯穿后续迭代，在开放非可信文件或生产访问前必须完成。
 
 | 任务 | 实现计划 | 可验收交付 |
 | --- | --- | --- |
-| N01：评测基线（承接 T06） | 定义 JSONL：query、tenant/subject、KB、期望证据/拒答、语料版本；建立 runner，从经审核样本逐步达到至少 200 题，冻结验收集 | dense-exact 的 Recall@20/nDCG@10/延迟报告，按题型和权限分桶；版本与重跑命令齐全 |
-| N02：中文 hybrid | 新迁移增加词法/编号索引；实现版本化中文分词、授权过滤 lexical 与 dense 双路召回、RRF/去重、候选上限 | dense-only/lexical-only/hybrid 对照；编号和中文样本收益、越权零泄露、字段/配置可追溯 |
-| N03：rerank 与上下文 | 独立 reranker 推理、候选/长度/deadline 限制、故障回退、上下文去重/token 预算；逐步补父块元数据与授权扩展 | 相对 hybrid 的质量/延迟/成本报告，超时和模型故障回归，不把分数当正确概率 |
+| N01：评测基线（承接 T06） | 已实现 JSONL/快照 hash/四路 runner、20 文档 44 题合成开发集及冻结措辞 holdout；仍需经审核业务样本至少 200 题 | dense-exact 的 Recall@20/nDCG@10/延迟报告，按题型和权限分桶；版本与重跑命令齐全 |
+| N02：中文 hybrid | 已实现 0002/GIN/编号、版本化分词、三路授权召回、RRF/去重与旧数据回填 | dense-only/lexical-only/hybrid 对照；编号和中文样本收益、越权零泄露、字段/配置可追溯 |
+| N03：rerank 与上下文 | 已实现独立真实 reranker、候选/长度/deadline、回退、完整块去重/token 预算；父块元数据与扩展待补 | 相对 hybrid 的质量/延迟/成本报告，超时和模型故障回归，不把分数当正确概率 |
 | N04：按需 query rewrite | 增加有预算/超时的 LLM Provider 适配；保留原 query，歧义查询结构化改写、编号跳过、非法输出降级；记录脱敏调试信息 | 开关对照和改写退化样本；授权范围不可扩大。多轮改写待 M5 会话授权完成后接入 |
 | N05：入库可靠性补强 | 阶段产物/检查点、DLQ/失败列表、抖动重试、可观察恢复；增加真实 kill Worker、MQ 发布临界点、重复/乱序演练 | 对账 job/outbox/产物，证明无重复可见发布、无任务丢失、旧租约不能提交 |
 | N06：内容更新与回收 | 新版本 API、chunk_set/profile、manifest/CAS、影子重建/回滚、GC/孤立对象保留策略、版本 UI | 更新不中断旧版查询，并发不覆盖，删除/撤权不被迟到任务/回滚/恢复复活 |
@@ -567,13 +573,17 @@ rag-service/
     parsing.py / embedding.py / queue.py / worker.py / dispatcher.py
     bootstrap.py / errors.py
     static/              # 当前原生 HTML/CSS/JS 管理台
-  migrations/versions/0001_initial.py
+  app/retrieval/         # 词法、模型客户端、异步 SQL、限流、RRF/预算、响应契约
+  app/backfill.py        # 不重算向量的词法回填
+  evals/                # 合成 JSONL、manifest、四路评测 runner
+  migrations/versions/0001_initial.py / 0002_hybrid_retrieval.py
   docker/init-roles.sql
   docker/minio/Dockerfile
   tests/test_core.py / test_integration.py
   scripts/run_tests.py / acceptance.py
 rag-inference/
   server.py / download_model.py
+  reranker_server.py / reranker_config.py / download_reranker.py
   requirements.in / requirements.lock / Dockerfile
 compose.rag.yaml
 docs/rag/

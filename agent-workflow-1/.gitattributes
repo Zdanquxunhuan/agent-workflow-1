@@ -1,2 +1,6 @@
 /mvnw text eol=lf
 *.cmd text eol=crlf
+# These files participate in portable content/profile hashes.
+rag-service/app/retrieval/domain_words.txt text eol=lf
+rag-service/evals/**/*.jsonl text eol=lf
+rag-service/evals/**/manifest.json text eol=lf

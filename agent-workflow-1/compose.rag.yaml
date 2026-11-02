@@ -9,6 +9,9 @@ x-rag-environment: &rag-environment
   RAG_S3_SECRET_KEY: rag_object_dev_only
   RAG_EMBEDDING_URL: http://embedding:8092
   RAG_EMBEDDING_KEY: rag-embedding-local-development-key
+  RAG_RERANKER_URL: http://reranker:8093
+  RAG_RERANKER_KEY: rag-reranker-local-development-key
+  RAG_RETRIEVAL_PROFILE: ${RAG_RETRIEVAL_PROFILE:-hybrid-rerank-v2}
   RAG_AUTH_SECRET: rag-local-development-secret-at-least-32-bytes
   RAG_AUTH_ISSUER: rag-local
   RAG_DEV_LOGIN_ENABLED: "true"
@@ -78,6 +81,7 @@ services:
     ports: ["127.0.0.1:8091:8091"]
     depends_on:
       seed: {condition: service_completed_successfully}
+      backfill: {condition: service_completed_successfully}
     restart: unless-stopped
     init: true
     healthcheck:
@@ -111,6 +115,30 @@ services:
     mem_limit: 1g
     cpus: 1
     stop_grace_period: 30s
+  backfill:
+    image: workflow-rag-api:local
+    environment: *rag-environment
+    command: ["python", "-m", "app.backfill", "--all-tenants"]
+    depends_on:
+      seed: {condition: service_completed_successfully}
+  reranker:
+    image: workflow-rag-embedding:local
+    command: ["uvicorn", "reranker_server:app", "--host", "0.0.0.0", "--port", "8093", "--no-access-log"]
+    environment:
+      RERANKER_KEY: rag-reranker-local-development-key
+      TOKENIZERS_PARALLELISM: "false"
+      OMP_NUM_THREADS: "2"
+    volumes: ["rag_models:/models"]
+    restart: unless-stopped
+    init: true
+    mem_limit: 6g
+    cpus: 2
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8093/health/ready', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      start_period: 120s
+      retries: 30
   embedding:
     build: ./rag-inference
     image: workflow-rag-embedding:local

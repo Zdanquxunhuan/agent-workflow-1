@@ -43,17 +43,26 @@ def main():
     found = check(client.post("/api/v1/search", headers=auth, json=question))
     assert found["hits"] and "主管审批" in found["hits"][0]["text"], found
     cite = found["hits"][0]["citation"]["url"]
+    profiles = {}
+    for profile in ['dense-v2', 'lexical-v2', 'hybrid-v2', 'hybrid-rerank-v2']:
+        result = check(client.post('/api/v1/search/debug', headers=auth,
+                                  json=question | {'query': '已发货订单退款审批', 'profile': profile}))
+        assert result['status'] == 'ok' and result['hits'] and result['debug']['candidates'], result
+        profiles[profile] = result['timings_ms']
+        if profile == 'hybrid-rerank-v2':
+            assert result['reranker_profile'] and result['hits'][0]['score_type'] == 'reranker_logit'
     check(client.get(cite, headers=auth))
     check(client.post("/api/v1/search", headers=outsider, json=question), 404)
     check(client.get(cite, headers=outsider), 404)
     alice = token("alice")
     check(client.put(f"/api/v1/knowledge-bases/{kb}/acl", headers=auth, json={"subject": "alice", "role": "reader"}))
     assert check(client.post("/api/v1/search", headers=alice, json=question))["hits"]
+    check(client.post('/api/v1/search/debug', headers=alice, json=question), 403)
     check(client.delete(f"/api/v1/knowledge-bases/{kb}/acl/alice", headers=auth))
     check(client.get(cite, headers=alice), 404)
     # Keep the successful document for manual exploration; deletion is covered in integration tests.
     print(json.dumps({"result": "passed", "model_profile": ready["embedding_profile"], "kb_id": kb,
-                      "document_id": job["document_id"], "job_id": job["job_id"],
+                      "document_id": job["document_id"], "job_id": job["job_id"], "retrieval_profiles": profiles,
                       "checks": ["real BGE ingestion", "MQ dispatch", "idempotency", "semantic query",
                                  "citation", "tenant isolation", "KB grant and revoke"]}, ensure_ascii=False))
 

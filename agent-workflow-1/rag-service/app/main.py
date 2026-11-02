@@ -19,11 +19,15 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from app.auth import Principal, document_visible, principal, require_kb
 from app.config import settings
-from app.db import transaction, vector_literal, pool
-from app.embedding import embed
+from app.db import transaction, pool
 from app.errors import RagError
 from app.parsing import validate_file
 from app.storage import get_object, put_object, s3
+from app.retrieval import pipeline
+from app.retrieval.contracts import SearchResponse, SearchDebugResponse
+from app.retrieval.database import create_pool
+from app.retrieval.lexical import tokenizer
+from app.retrieval.profiles import PROFILES
 
 @asynccontextmanager
 async def lifespan(app):
@@ -33,12 +37,21 @@ async def lifespan(app):
         if role["rolsuper"] or role["rolbypassrls"]:
             raise RuntimeError("API database role must not bypass row-level security")
         conn.execute("SELECT 1 FROM knowledge_bases LIMIT 1")
-    yield
-    pool().close()
-    pool.cache_clear()
+        conn.execute("SELECT 1 FROM chunk_lexical LIMIT 1")
+        conn.execute("SELECT 1 FROM search_admissions LIMIT 1")
+    tokenizer()  # Warm up segmentation outside the request deadline.
+    async with create_pool() as search_pool, httpx.AsyncClient(
+            limits=httpx.Limits(max_connections=8, max_keepalive_connections=4), follow_redirects=False) as model_http:
+        app.state.search_pool = search_pool
+        app.state.model_http = model_http
+        try:
+            yield
+        finally:
+            pool().close()
+            pool.cache_clear()
 
 
-app = FastAPI(title="Workflow RAG", version="0.1.0", description="First real ingestion/retrieval slice",
+app = FastAPI(title="Workflow RAG", version="0.2.0", description="Authorized hybrid retrieval and diagnostics",
               lifespan=lifespan)
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -72,7 +85,8 @@ async def boundary(request: Request, call_next):
 @app.exception_handler(RagError)
 async def rag_error(request, exc):
     return JSONResponse({"code": exc.code, "message": exc.message, "retryable": exc.retryable,
-                         "request_id": getattr(request.state, "request_id", None)}, exc.status)
+                         "request_id": getattr(request.state, "request_id", None)}, exc.status,
+                        headers={"Retry-After": "2"} if exc.status == 429 else None)
 
 
 @app.exception_handler(RequestValidationError)
@@ -112,6 +126,7 @@ class Search(StrictModel):
     query: str = Field(min_length=1, max_length=2000)
     knowledge_base_ids: list[UUID] = Field(min_length=1, max_length=5)
     top_k: int = Field(default=5, ge=1, le=20)
+    profile: str | None = Field(default=None, max_length=80)
 
 
 class DevLogin(StrictModel):
@@ -147,7 +162,8 @@ def ready():
 @app.get("/api/v1/config")
 def public_config():
     return {"dev_login_enabled": settings().environment == "development" and settings().dev_login_enabled,
-            "max_upload_bytes": settings().upload_max_bytes, "formats": ["txt", "md", "pdf", "docx"]}
+            "max_upload_bytes": settings().upload_max_bytes, "formats": ["txt", "md", "pdf", "docx"],
+            "retrieval_profiles": list(PROFILES), "default_retrieval_profile": settings().retrieval_profile}
 
 
 @app.post("/api/v1/auth/dev-token")
@@ -345,42 +361,14 @@ def delete_document(doc_id: UUID, user: User):
     return {"status": "deleted", "physical_cleanup": "retained_pending_retention_policy"}
 
 
-@app.post("/api/v1/search")
-def search(body: Search, user: User, request: Request):
-    if not body.query.strip():
-        raise RagError("INVALID_ARGUMENT", "Query cannot be blank", 422)
-    with transaction(user.tenant_id) as conn:
-        for kb_id in body.knowledge_base_ids:
-            require_kb(conn, user, kb_id)
-    query_vector = vector_literal(embed([body.query])[0])
-    with transaction(user.tenant_id) as conn:
-        # Revalidate after inference: a membership or KB grant may have been revoked in flight.
-        member = conn.execute("SELECT role FROM tenant_memberships WHERE tenant_id=%s AND subject=%s AND enabled",
-                              (user.tenant_id, user.subject)).fetchone()
-        if not member:
-            raise RagError("FORBIDDEN", "Membership revoked", 403)
-        current_user = Principal(user.tenant_id, user.subject, member["role"])
-        for kb_id in body.knowledge_base_ids:
-            require_kb(conn, current_user, kb_id)
-        # Exact search over the authorized set is deliberate for the first slice.
-        # The HNSW index is provisioned, but ANN tuning is deferred until filtered recall is measured.
-        conn.execute("SET LOCAL enable_indexscan=off")
-        rows = conn.execute("""SELECT c.id AS chunk_id,c.document_id,c.version_id AS document_version_id,
-          d.title,c.content AS text,c.page,c.section,c.content_hash,
-          c.embedding <=> %s::vector AS distance FROM chunks c
-          JOIN documents d ON d.tenant_id=c.tenant_id AND d.id=c.document_id
-          WHERE c.tenant_id=%s AND d.kb_id=ANY(%s) AND d.deleted_at IS NULL
-          AND d.active_version_id=c.version_id AND c.embedding_profile=%s
-          AND (d.allowed_subjects IS NULL OR %s=ANY(d.allowed_subjects))
-          ORDER BY c.embedding <=> %s::vector LIMIT %s""",
-                            (query_vector, user.tenant_id, body.knowledge_base_ids,
-                             settings().embedding_profile, user.subject, query_vector, body.top_k)).fetchall()
-    for row in rows:
-        row["citation"] = {"id": str(row["chunk_id"]), "url": f"/api/v1/citations/{row['chunk_id']}",
-                           "page": row["page"], "section": row["section"]}
-    return {"request_id": request.state.request_id, "status": "ok", "hits": rows,
-            "retrieval_profile_id": "dense-exact-v1", "embedding_profile": settings().embedding_profile,
-            "degraded_components": []}
+@app.post("/api/v1/search", response_model=SearchResponse)
+async def search(body: Search, user: User, request: Request):
+    return await pipeline.search(app, user, body, request.state.request_id)
+
+
+@app.post("/api/v1/search/debug", response_model=SearchDebugResponse)
+async def search_debug(body: Search, user: User, request: Request):
+    return await pipeline.search(app, user, body, request.state.request_id, debug=True)
 
 
 @app.get("/api/v1/citations/{chunk_id}")

@@ -1,0 +1,47 @@
+{
+  "dense-v2": {
+    "channels": [
+      "dense"
+    ],
+    "candidate_k": 50,
+    "rerank_k": 0,
+    "rrf_k": 60,
+    "max_per_document": 3,
+    "context_tokens": 2400
+  },
+  "lexical-v2": {
+    "channels": [
+      "lexical",
+      "identifier"
+    ],
+    "candidate_k": 50,
+    "rerank_k": 0,
+    "rrf_k": 60,
+    "max_per_document": 3,
+    "context_tokens": 2400
+  },
+  "hybrid-v2": {
+    "channels": [
+      "dense",
+      "lexical",
+      "identifier"
+    ],
+    "candidate_k": 50,
+    "rerank_k": 0,
+    "rrf_k": 60,
+    "max_per_document": 3,
+    "context_tokens": 2400
+  },
+  "hybrid-rerank-v2": {
+    "channels": [
+      "dense",
+      "lexical",
+      "identifier"
+    ],
+    "candidate_k": 50,
+    "rerank_k": 10,
+    "rrf_k": 60,
+    "max_per_document": 3,
+    "context_tokens": 2400
+  }
+}

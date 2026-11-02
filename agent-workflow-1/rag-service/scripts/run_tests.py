@@ -27,11 +27,13 @@ def main():
         "RAG_DATABASE_URL": runtime.set(database=database).render_as_string(hide_password=False),
         "RAG_S3_BUCKET": bucket,
         "RAG_INTEGRATION": "1",
+        "RAG_SEARCH_REQUESTS_PER_MINUTE": "10000",
     }
     try:
         subprocess.run(["alembic", "upgrade", "head"], env=env, check=True)
         subprocess.run([sys.executable, "-m", "app.bootstrap"], env=env, check=True)
-        subprocess.run(["pytest", "-q", "-p", "no:cacheprovider"], env=env, check=True)
+        command = sys.argv[1:] or ["pytest", "-q", "-p", "no:cacheprovider"]
+        subprocess.run(command, env=env, check=True)
     finally:
         # Exact random resources created above; never truncate shared application data.
         os.environ["RAG_S3_BUCKET"] = bucket

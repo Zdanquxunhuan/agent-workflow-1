@@ -93,7 +93,9 @@ public class HttpRagKnowledgeSearchClient implements KnowledgeSearchClient {
                 // Never trust a model/server-provided external citation URL.
                 hits.add(new Hit(documentId, hit.path("title").asText(), snippet,
                         base.resolve("api/v1/citations/" + chunkId).toString(),
-                        1 - hit.path("distance").asDouble(), versionId, chunkId));
+                        hit.path("score").isNumber() ? hit.path("score").asDouble()
+                                : (hit.path("distance").isNumber() ? 1 - hit.path("distance").asDouble() : 0),
+                        versionId, chunkId));
                 if (hits.size() == limit) break;
             }
             return List.copyOf(hits);

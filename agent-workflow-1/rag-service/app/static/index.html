@@ -17,11 +17,14 @@
 <form id="upload"><label class="drop"><strong>选择要加入知识库的文件</strong><span>扫描件 OCR 将在后续阶段提供</span><input type="file" id="file" accept=".txt,.md,.pdf,.docx" required></label><button class="primary" id="upload-button">上传并建立索引</button></form>
 <div class="section-head"><h3>处理记录</h3><button class="quiet" id="refresh">刷新</button></div><div id="documents" class="empty">选择知识库后查看文档</div></section>
 <section class="card"><h2>检索知识</h2><form id="search"><div class="search-row"><input id="query" placeholder="例如：已发货订单如何申请退款？" maxlength="2000" required><button class="primary" id="search-button">搜索</button></div></form>
-<p class="muted small">当前返回真实语义检索证据；回答生成与混合检索将在后续阶段接入。</p><div id="results" class="empty">搜索结果将附带文档版本和引用位置</div></section>
+<div class="search-options"><label>检索方式 <select id="profile"></select></label><label><input type="checkbox" id="debug-enabled"> 查看检索诊断（需管理权限）</label></div>
+<p class="muted small">语义、中文关键词与编号联合检索，可选模型重排。当前返回原文证据，尚未生成回答。</p>
+<div id="search-status" role="status" class="muted small"></div><div id="results" class="empty">搜索结果将附带文档版本和引用位置</div>
+<details id="debug-panel" hidden><summary>检索诊断：召回、融合与重排</summary><pre id="debug-summary"></pre><div class="table-scroll"><table><thead><tr><th>文档 / 片段</th><th>通道排名</th><th>融合排名</th><th>重排分数</th><th>选入证据</th></tr></thead><tbody id="debug-rows"></tbody></table></div></details></section>
 <section class="card"><h2>访问权限</h2><p class="muted small">为本租户已有成员授予当前知识库权限。开发环境预置 admin、alice、bob。</p>
 <form id="grant"><div class="search-row"><input id="grant-subject" placeholder="成员 ID" required><select id="grant-role"><option value="reader">只读</option><option value="contributor">上传</option><option value="manager">管理</option></select><button>授权</button></div></form>
 <button class="quiet" id="revoke">撤销上面填写的成员权限</button></section>
-<footer>Knowledge Studio / 第一阶段 · 真实文档入库与检索</footer></main>
+<footer>Knowledge Studio / Version 2 · 混合检索与质量诊断</footer></main>
 <dialog id="citation-dialog"><h2 id="citation-title"></h2><pre id="citation-text"></pre><button id="close-dialog">关闭</button></dialog>
 <script src="/static/app.js"></script></body></html>
 

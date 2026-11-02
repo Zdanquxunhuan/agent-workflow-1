@@ -1,0 +1,44 @@
+{"id": "shipped-refund-1", "split": "development", "kind": "semantic", "tenant": "demo", "subject": "admin", "query": "包裹已经寄出了，退款要找谁审核？", "relevance": {"shipped-refund": 2}}
+{"id": "shipped-refund-2", "split": "holdout", "kind": "semantic", "tenant": "demo", "subject": "admin", "query": "商品寄出以后能直接退钱吗？", "relevance": {"shipped-refund": 2}}
+{"id": "unshipped-refund-1", "split": "development", "kind": "negation", "tenant": "demo", "subject": "admin", "query": "刚付款还没出库，谁可以取消订单？", "relevance": {"unshipped-refund": 2}}
+{"id": "unshipped-refund-2", "split": "holdout", "kind": "negation", "tenant": "demo", "subject": "admin", "query": "未发货而且支付不到两小时，退款还要主管同意吗？", "relevance": {"unshipped-refund": 2}}
+{"id": "address-change-1", "split": "development", "kind": "semantic", "tenant": "demo", "subject": "admin", "query": "包裹寄出后收件地址填错怎么办？", "relevance": {"address-change": 2}}
+{"id": "address-change-2", "split": "holdout", "kind": "semantic", "tenant": "demo", "subject": "admin", "query": "快递还没发走，客服能改收货地址吗？", "relevance": {"address-change": 2}}
+{"id": "invoice-1", "split": "development", "kind": "semantic", "tenant": "demo", "subject": "admin", "query": "发票抬头写错应该如何处理？", "relevance": {"invoice": 2}}
+{"id": "invoice-2", "split": "holdout", "kind": "semantic", "tenant": "demo", "subject": "admin", "query": "电子票开出来后发到哪里？", "relevance": {"invoice": 2}}
+{"id": "duplicate-payment-1", "split": "development", "kind": "semantic", "tenant": "demo", "subject": "admin", "query": "一笔订单扣了两次钱，是否重新发货？", "relevance": {"duplicate-payment": 2}}
+{"id": "duplicate-payment-2", "split": "holdout", "kind": "semantic", "tenant": "demo", "subject": "admin", "query": "重复支付要拿什么材料给财务核对？", "relevance": {"duplicate-payment": 2}}
+{"id": "payment-code-1", "split": "development", "kind": "identifier", "tenant": "demo", "subject": "admin", "query": "ERR-1042 怎么处理？", "relevance": {"payment-code": 2}}
+{"id": "payment-code-2", "split": "holdout", "kind": "identifier", "tenant": "demo", "subject": "admin", "query": "出现ｅｒｒ－１０４２支付错误，应该重新下单吗？", "relevance": {"payment-code": 2}}
+{"id": "stock-code-1", "split": "development", "kind": "identifier", "tenant": "demo", "subject": "admin", "query": "INV_204 有什么解决办法？", "relevance": {"stock-code": 2}}
+{"id": "stock-code-2", "split": "holdout", "kind": "identifier", "tenant": "demo", "subject": "admin", "query": "库存返回 inv_204，可否直接减成负数？", "relevance": {"stock-code": 2}}
+{"id": "sku-manual-1", "split": "development", "kind": "identifier", "tenant": "demo", "subject": "admin", "query": "AX-900 首次如何配置？", "relevance": {"sku-manual": 2}}
+{"id": "sku-manual-2", "split": "holdout", "kind": "identifier", "tenant": "demo", "subject": "admin", "query": "AX-900 的管理入口是什么？", "relevance": {"sku-manual": 2}}
+{"id": "sku-pro-1", "split": "development", "kind": "identifier", "tenant": "demo", "subject": "admin", "query": "AX-900-PRO 如何恢复出厂？", "relevance": {"sku-pro": 2}}
+{"id": "sku-pro-2", "split": "holdout", "kind": "identifier", "tenant": "demo", "subject": "admin", "query": "AX-900-PRO 的管理地址和普通版一样吗？", "relevance": {"sku-pro": 2}}
+{"id": "shipping-1", "split": "development", "kind": "semantic", "tenant": "demo", "subject": "admin", "query": "偏远地区包裹一般多久能到？", "relevance": {"shipping": 2}}
+{"id": "shipping-2", "split": "holdout", "kind": "semantic", "tenant": "demo", "subject": "admin", "query": "普通快递比承诺时间晚了五天该找谁？", "relevance": {"shipping": 2}}
+{"id": "return-damage-1", "split": "development", "kind": "semantic", "tenant": "demo", "subject": "admin", "query": "运输中摔坏了，退换需要提交哪些证明？", "relevance": {"return-damage": 2}}
+{"id": "return-damage-2", "split": "holdout", "kind": "semantic", "tenant": "demo", "subject": "admin", "query": "到货破损换货的运费谁出？", "relevance": {"return-damage": 2}}
+{"id": "warranty-1", "split": "development", "kind": "negation", "tenant": "demo", "subject": "admin", "query": "自己拆开机器后坏了还免费修吗？", "relevance": {"warranty": 2}}
+{"id": "warranty-2", "split": "holdout", "kind": "negation", "tenant": "demo", "subject": "admin", "query": "电子设备的保修期从哪天开始算？", "relevance": {"warranty": 2}}
+{"id": "sso-1", "split": "development", "kind": "semantic", "tenant": "demo", "subject": "admin", "query": "单点登录提示服务器时间不对怎么处理？", "relevance": {"sso": 2}}
+{"id": "sso-2", "split": "holdout", "kind": "semantic", "tenant": "demo", "subject": "admin", "query": "账号密码连续错了五次要等多久？", "relevance": {"sso": 2}}
+{"id": "api-rate-1", "split": "development", "kind": "semantic", "tenant": "demo", "subject": "admin", "query": "接口返回429以后客户端应该怎么重试？", "relevance": {"api-rate": 2}}
+{"id": "api-rate-2", "split": "holdout", "kind": "semantic", "tenant": "demo", "subject": "admin", "query": "单个租户允许多少条检索同时执行？", "relevance": {"api-rate": 2}}
+{"id": "backup-1", "split": "development", "kind": "negation", "tenant": "demo", "subject": "admin", "query": "数据库每天备份后还要保存什么日志？", "relevance": {"backup": 2}}
+{"id": "backup-2", "split": "holdout", "kind": "negation", "tenant": "demo", "subject": "admin", "query": "可以直接在线上覆盖数据测试恢复吗？", "relevance": {"backup": 2}}
+{"id": "rbac-1", "split": "development", "kind": "negation", "tenant": "demo", "subject": "admin", "query": "只读成员可以给别人授予知识库权限吗？", "relevance": {"rbac": 2}}
+{"id": "rbac-2", "split": "holdout", "kind": "negation", "tenant": "demo", "subject": "admin", "query": "contributor 比 reader 多什么能力？", "relevance": {"rbac": 2}}
+{"id": "english-1", "split": "development", "kind": "multilingual", "tenant": "demo", "subject": "admin", "query": "When should the old service credential be revoked during rotation?", "relevance": {"english": 2}}
+{"id": "english-2", "split": "holdout", "kind": "multilingual", "tenant": "demo", "subject": "admin", "query": "服务密钥轮换时应该先撤销旧密钥还是先验证新流量？", "relevance": {"english": 2}}
+{"id": "leave-1", "split": "development", "kind": "semantic", "tenant": "demo", "subject": "admin", "query": "年假应该提前多久申请？", "relevance": {"leave": 2}}
+{"id": "leave-2", "split": "holdout", "kind": "semantic", "tenant": "demo", "subject": "admin", "query": "突然生病不能来上班，能否事后补交材料？", "relevance": {"leave": 2}}
+{"id": "absent-1", "split": "development", "kind": "no_answer", "tenant": "demo", "subject": "admin", "query": "火星基地的氧气配给标准是什么？", "relevance": {}}
+{"id": "absent-2", "split": "holdout", "kind": "no_answer", "tenant": "demo", "subject": "admin", "query": "不存在的产品 ZZ-000 如何安装？", "relevance": {}}
+{"id": "absent-3", "split": "development", "kind": "no_answer", "tenant": "demo", "subject": "admin", "query": "明天北京的天气预报是多少度？", "relevance": {}}
+{"id": "absent-4", "split": "holdout", "kind": "no_answer", "tenant": "demo", "subject": "admin", "query": "公司董事会明年的分红计划是多少？", "relevance": {}}
+{"id": "acl-allowed", "split": "development", "kind": "acl", "tenant": "demo", "subject": "admin", "query": "ORION-88 内部预算和负责人是什么？", "relevance": {"restricted": 2}, "forbidden": ["other-tenant"]}
+{"id": "acl-restricted", "split": "holdout", "kind": "acl", "tenant": "demo", "subject": "alice", "query": "ORION-88 内部预算和负责人是什么？", "relevance": {}, "forbidden": ["restricted", "other-tenant"]}
+{"id": "acl-other", "split": "development", "kind": "acl", "tenant": "other", "subject": "admin", "query": "ORION-88 定价是多少？", "relevance": {"other-tenant": 2}, "forbidden": ["restricted"]}
+{"id": "acl-cross-kb", "split": "holdout", "kind": "acl", "tenant": "other", "kb_tenant": "demo", "subject": "admin", "query": "ORION-88 内部预算是什么？", "relevance": {}, "forbidden": ["shipped-refund", "unshipped-refund", "address-change", "invoice", "duplicate-payment", "payment-code", "stock-code", "sku-manual", "sku-pro", "shipping", "return-damage", "warranty", "sso", "api-rate", "backup", "rbac", "english", "leave", "restricted"], "expected_status": 404}

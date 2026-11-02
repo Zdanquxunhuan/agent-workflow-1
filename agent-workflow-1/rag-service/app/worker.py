@@ -10,6 +10,7 @@ from app.errors import RagError
 from app.parsing import parse
 from app.queue import celery_app
 from app.storage import get_object
+from app.retrieval.lexical import PROFILE as LEXICAL_PROFILE, index_payload
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ def heartbeat(tenant, job_id, fence, stop):
 
 
 def publish(tenant, job, chunks):
+    prepared = [(uuid4(), c, index_payload(c["text"])) for c in chunks]
     with transaction(tenant) as conn:
         # Lock document before job: deletion uses the same lock order.
         doc = conn.execute("SELECT * FROM documents WHERE tenant_id=%s AND id=%s FOR UPDATE",
@@ -74,9 +76,13 @@ def publish(tenant, job, chunks):
             cur.executemany("""INSERT INTO chunks(tenant_id,id,document_id,version_id,ordinal,content,
               page,section,token_count,content_hash,embedding_profile,embedding)
               VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::vector)""", [
-                (tenant, uuid4(), job["document_id"], job["version_id"], i, c["text"], c["page"],
+                (tenant, chunk_id, job["document_id"], job["version_id"], i, c["text"], c["page"],
                  c["section"], c["token_count"], c["content_hash"], settings().embedding_profile,
-                 vector_literal(c["vector"])) for i, c in enumerate(chunks)])
+                 vector_literal(c["vector"])) for i, (chunk_id, c, _) in enumerate(prepared)])
+            cur.executemany("""INSERT INTO chunk_lexical(tenant_id,chunk_id,profile,content_hash,lexemes,identifiers)
+              VALUES(%s,%s,%s,%s,%s,%s)""", [
+                (tenant, chunk_id, LEXICAL_PROFILE, c["content_hash"], lexical[0], lexical[1])
+                for chunk_id, c, lexical in prepared])
         conn.execute("UPDATE documents SET active_version_id=%s WHERE tenant_id=%s AND id=%s",
                      (job["version_id"], tenant, job["document_id"]))
         conn.execute("""UPDATE ingestion_jobs SET state='SUCCEEDED',progress=100,lease_until=NULL,

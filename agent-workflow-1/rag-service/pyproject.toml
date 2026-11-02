@@ -1,6 +1,6 @@
 [project]
 name = "workflow-rag"
-version = "0.1.0"
+version = "0.2.0"
 description = "Tenant-scoped asynchronous document ingestion and retrieval"
 requires-python = ">=3.12,<3.14"
 dynamic = ["dependencies"]
@@ -12,7 +12,7 @@ dependencies = {file = ["requirements.in"]}
 include = ["app*"]
 
 [tool.setuptools.package-data]
-app = ["static/*"]
+app = ["static/*", "retrieval/*.json", "retrieval/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

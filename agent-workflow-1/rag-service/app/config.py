@@ -33,6 +33,15 @@ class Settings(BaseSettings):
     max_attempts: int = 3
     lease_seconds: int = 180
     recovery_seconds: int = 30
+    retrieval_profile: str = "hybrid-rerank-v2"
+    search_deadline_seconds: float = 12.0
+    query_embedding_timeout: float = 4.0
+    rerank_timeout: float = 6.0
+    reranker_url: str = "http://localhost:8093"
+    reranker_key: str = "rag-reranker-local-development-key"
+    reranker_profile: str = "bge-reranker-v2-m3-953dc6f-fp32-512-v1"
+    search_requests_per_minute: int = 120
+    search_tenant_concurrency: int = 2
 
     @model_validator(mode="after")
     def validate_config(self):
@@ -44,11 +53,17 @@ class Settings(BaseSettings):
             raise ValueError("OIDC requires an HTTPS JWKS URL")
         if not 0 <= self.overlap_tokens < self.chunk_tokens:
             raise ValueError("overlap must be smaller than chunk size")
+        if self.retrieval_profile not in {"dense-v2", "lexical-v2", "hybrid-v2", "hybrid-rerank-v2"}:
+            raise ValueError("unknown retrieval profile")
+        if not (1 <= self.search_deadline_seconds <= 120 and 0 < self.query_embedding_timeout <= 60
+                and 0 < self.rerank_timeout <= 60 and 1 <= self.search_tenant_concurrency <= 32
+                and 1 <= self.search_requests_per_minute <= 10000):
+            raise ValueError("invalid retrieval resource limits")
         if self.environment == "production":
             if self.auth_mode != "oidc" or self.dev_login_enabled:
                 raise ValueError("production requires OIDC with development login disabled")
             if any("dev_only" in v or "development" in v for v in
-                   [self.database_url, self.s3_secret_key, self.broker_url, self.embedding_key]):
+                   [self.database_url, self.s3_secret_key, self.broker_url, self.embedding_key, self.reranker_key]):
                 raise ValueError("development credentials are forbidden in production")
             if not self.s3_endpoint.startswith("https://"):
                 raise ValueError("production object storage requires TLS")

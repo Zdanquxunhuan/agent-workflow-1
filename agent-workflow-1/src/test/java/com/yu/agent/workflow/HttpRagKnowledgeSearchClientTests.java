@@ -75,6 +75,12 @@ class HttpRagKnowledgeSearchClientTests {
     }
 
     @Test
+    void usesV2RankingScoreWithoutTreatingLexicalNullDistanceAsPerfectSimilarity() {
+        searchBody = searchBody.replace("\"distance\":0.1", "\"distance\":null,\"score\":0.032,\"score_type\":\"rrf\"");
+        assertThat(client.search("q", context, 3).get(0).score()).isEqualTo(0.032);
+    }
+
+    @Test
     void missingOrMismatchedIdentityNeverCallsRemoteService() {
         SecurityContextHolder.clearContext();
         assertThatThrownBy(() -> client.search("q", context, 3)).isInstanceOf(BusinessException.class)
