@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Knowledge Studio · RAG</title><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<aside><div class="brand">K<span> / </span>Knowledge Studio</div><p class="muted">工作流知识中心</p>
+<div class="label">当前身份</div><div id="identity">尚未登录</div>
+<div id="dev-login" hidden><select id="tenant"><option value="demo">Demo 租户</option><option value="other">Other 租户</option></select>
+<select id="subject"><option>admin</option><option>alice</option><option>bob</option></select><button id="login">使用开发身份登录</button></div>
+<details><summary>使用访问令牌</summary><textarea id="token" placeholder="粘贴 RAG Bearer token"></textarea><button id="token-login">登录</button></details>
+<div class="label">知识库</div><div id="kb-list"></div>
+<form id="create-kb"><input id="kb-name" placeholder="新知识库名称" maxlength="120" required><button>＋ 创建知识库</button></form>
+<p class="aside-note">原文与检索结果按租户和知识库权限隔离。</p></aside>
+<main><header><div><div class="eyebrow">DOCUMENTS → KNOWLEDGE</div><h1 id="kb-title">让知识成为可追溯的证据</h1><p class="muted">上传文档，跟踪处理进度，检索原文中的答案。</p></div><span id="service-state" class="badge">检查服务中</span></header>
+<div id="notice" role="status" hidden></div>
+<section class="card"><div class="section-head"><h2>文档入库</h2><span class="muted">TXT · Markdown · 文本 PDF · DOCX / 10 MiB</span></div>
+<form id="upload"><label class="drop"><strong>选择要加入知识库的文件</strong><span>扫描件 OCR 将在后续阶段提供</span><input type="file" id="file" accept=".txt,.md,.pdf,.docx" required></label><button class="primary" id="upload-button">上传并建立索引</button></form>
+<div class="section-head"><h3>处理记录</h3><button class="quiet" id="refresh">刷新</button></div><div id="documents" class="empty">选择知识库后查看文档</div></section>
+<section class="card"><h2>检索知识</h2><form id="search"><div class="search-row"><input id="query" placeholder="例如：已发货订单如何申请退款？" maxlength="2000" required><button class="primary" id="search-button">搜索</button></div></form>
+<p class="muted small">当前返回真实语义检索证据；回答生成与混合检索将在后续阶段接入。</p><div id="results" class="empty">搜索结果将附带文档版本和引用位置</div></section>
+<section class="card"><h2>访问权限</h2><p class="muted small">为本租户已有成员授予当前知识库权限。开发环境预置 admin、alice、bob。</p>
+<form id="grant"><div class="search-row"><input id="grant-subject" placeholder="成员 ID" required><select id="grant-role"><option value="reader">只读</option><option value="contributor">上传</option><option value="manager">管理</option></select><button>授权</button></div></form>
+<button class="quiet" id="revoke">撤销上面填写的成员权限</button></section>
+<footer>Knowledge Studio / 第一阶段 · 真实文档入库与检索</footer></main>
+<dialog id="citation-dialog"><h2 id="citation-title"></h2><pre id="citation-text"></pre><button id="close-dialog">关闭</button></dialog>
+<script src="/static/app.js"></script></body></html>
+

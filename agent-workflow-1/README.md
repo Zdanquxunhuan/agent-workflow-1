@@ -17,6 +17,10 @@
 
 ## 运行
 
+### 独立 RAG（第一阶段）
+
+新增 FastAPI、PostgreSQL/pgvector、RabbitMQ、对象存储和真实 BGE-M3 的文档入库/检索链路，包含本地管理页面。运行与当前限制见 [RAG 实现说明](docs/rag/implementation.md)，完整目标见 [生产化计划](rag-production-to.md)。这部分仍在分阶段实现，尚未完成生产发布验收。
+
 ### 独立业务系统接入（本地 Docker / 合成数据）
 
 新增独立订单/支付服务与独立 MySQL；Agent 通过真实 HTTP 查询订单/支付并提交异步退款，包含幂等、状态轮询对账、人工队列和操作审计。支付数据均为合成数据，不涉及真实资金。

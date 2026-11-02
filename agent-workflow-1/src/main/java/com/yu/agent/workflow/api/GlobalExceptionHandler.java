@@ -37,9 +37,11 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> business(BusinessException ex, HttpServletRequest request) {
         HttpStatus status = switch (ex.code()) {
             case "UNAUTHORIZED" -> HttpStatus.UNAUTHORIZED;
-            case "FORBIDDEN" -> HttpStatus.FORBIDDEN;
+            case "FORBIDDEN", "RAG_ACCESS_DENIED", "RAG_IDENTITY_REQUIRED" -> HttpStatus.FORBIDDEN;
             case "TASK_NOT_FOUND", "NOT_FOUND" -> HttpStatus.NOT_FOUND;
-            case "MODEL_UNAVAILABLE", "DOWNSTREAM_UNAVAILABLE" -> HttpStatus.SERVICE_UNAVAILABLE;
+            case "MODEL_UNAVAILABLE", "DOWNSTREAM_UNAVAILABLE", "RAG_UNAVAILABLE" -> HttpStatus.SERVICE_UNAVAILABLE;
+            case "RAG_RATE_LIMITED" -> HttpStatus.TOO_MANY_REQUESTS;
+            case "RAG_TASK_TENANCY_REQUIRED" -> HttpStatus.CONFLICT;
             case "RESULT_NOT_VERIFIED" -> HttpStatus.CONFLICT;
             case "INVALID_STATE", "APPROVAL_REQUIRED", "IDEMPOTENCY_CONFLICT", "CONFLICT",
                  "REFUND_NOT_ALLOWED", "ADDRESS_CHANGE_NOT_ALLOWED" -> HttpStatus.CONFLICT;
