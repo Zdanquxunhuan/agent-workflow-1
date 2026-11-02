@@ -10,8 +10,10 @@ import org.springframework.stereotype.Component;
 public class ResultEvaluator {
     public void verify(AgentTool tool, ToolResult result) {
         if (!result.success()) return;
-        if (!tool.readOnly() && !Boolean.TRUE.equals(result.data().get("simulation"))) {
-            throw BusinessException.of("RESULT_NOT_VERIFIED", "Write tool did not return a verifiable simulation result");
+        boolean verifiable = Boolean.TRUE.equals(result.data().get("verified"))
+                || Boolean.TRUE.equals(result.data().get("simulation"));
+        if (!tool.readOnly() && !verifiable) {
+            throw BusinessException.of("RESULT_NOT_VERIFIED", "Write tool did not return a verifiable business result");
         }
     }
 }
