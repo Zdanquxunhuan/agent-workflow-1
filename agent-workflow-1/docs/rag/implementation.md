@@ -1,8 +1,10 @@
-# RAG V2 实现与本地运行
+# RAG V3 实现与本地运行
 
 本次实现的是 M1/M2 的第一条真实链路：上传 → PostgreSQL 任务/Outbox → RabbitMQ → Worker → 解析/分块 → BGE-M3 → pgvector → 授权检索/引用。完整生产路线仍以 `rag-production-to.md` 为准；本文不代表生产发布验收完成。
 
-V1 历史验收见 [记录](verification-2026-11-02.md)。V2 增加中文词法/编号、RRF、真实 reranker、证据预算、检索诊断、租户限流与评测工具，设计见 [ADR-002](adr-002-hybrid-retrieval.md)，本轮结果见 [V2 验证](verification-v2-2026-11-02.md)。
+V1 历史验收见 [记录](verification-2026-11-02.md)。V2 增加中文词法/编号、RRF、真实 reranker、证据预算、检索诊断、租户限流与评测工具，设计见 [ADR-002](adr-002-hybrid-retrieval.md)，历史结果见 [V2 验证](verification-v2-2026-11-02.md)。
+
+V3 增加单文档版本生命周期，详见 [V3 交付与升级说明](version-3.md)。用户后续授权基础测试，现有与新增合计 53 项通过，详见 [V3 测试记录](verification-v3-2026-11-03.md)；没有升级工作库或部署 V3。`openapi.json` 已从实际路由生成 0.3.0 契约。下文“待验证”指剩余生产/端到端场景，不否定已完成的基础回归。
 
 ## 本次能力
 
@@ -11,13 +13,14 @@ V1 历史验收见 [记录](verification-2026-11-02.md)。V2 增加中文词法/
 - TXT、Markdown、文本 PDF、DOCX；大小、UTF-8、PDF 文件签名、DOCX 展开大小/宏限制；空内容不发布。
 - 固定 `BAAI/bge-m3` revision `5617a9f61b028005a4858fdac845db406aefb181`，真实 1024 维 CLS/归一化 dense 推理。tokenizer offset 保留原文，按真实 token 切块。
 - 同键上传回放/冲突检查、事务 Outbox、publisher confirm、late ACK、数据库租约/心跳/fencing、有限重试、失败任务人工重试、取消和原子文档发布。
+- V3 新增：不可变新版上传、READY 与发布状态分离、content_revision CAS、发布/回滚审计、历史版本引用/原件、版本比较、保留保护和显式排队的可恢复 GC；这些新增能力待独立验证。
 - 检索默认使用 hybrid-rerank-v2：授权集合内 dense-exact、中文词法和编号三路召回，RRF 后使用独立 reranker。保留四种 profile 对照；建有 HNSW，但尚未启用 ANN。
 - 原生 HTML/CSS/JS 管理页面，包含开发登录、KB 管理、上传、进度、搜索、引用查看、成员授权与撤销。没有前端构建依赖；后续复杂交互再迁移 React。
 - Java `KnowledgeSearchClient` 的 local/http 适配与无状态 `/api/v1/knowledge/search` 桥接。
 
 ## 启动
 
-在 `pom.xml` 所在目录执行，需要 Docker Desktop Linux containers。开发栈使用约 16 GiB Docker 可用内存中的部分资源；embedding 与 reranker 两个 CPU 进程分别限制 6 GiB，首次需要各下载约 2.3 GB 权重，实际速度取决于网络。
+在 `pom.xml` 所在目录执行，需要 Docker Desktop Linux containers。下面用于新建开发环境；**已有 V2 数据应先按 [V3 升级步骤](version-3.md#升级与验证交接) 停止旧 API/Worker/dispatcher，再迁移和替换镜像，不允许 V2 Worker 与 V3 混跑。** 开发栈使用约 16 GiB Docker 可用内存中的部分资源；embedding 与 reranker 两个 CPU 进程分别限制 6 GiB，首次需要各下载约 2.3 GB 权重，实际速度取决于网络。
 
 ```powershell
 docker compose -f compose.rag.yaml build
@@ -79,6 +82,8 @@ docker compose -f compose.rag.yaml run --rm --no-deps --user 0 -v "${PWD}/rag-in
 
 ## 测试
 
+本节保留测试入口；V3 已新增 16 项用例，连同既有回归合计 53 项通过，执行边界见 [测试记录](verification-v3-2026-11-03.md)。完整候选场景仍保留在 [testing-v3-handoff.md](testing-v3-handoff.md)，未全部执行。
+
 核心测试：
 
 ```powershell
@@ -127,21 +132,21 @@ $env:AGENT_AUTH_LOCAL_SECRET = 'rag-local-development-secret-at-least-32-bytes'
 
 ## 当前限制与下一批工作
 
-- 当前只发布每个文档的首个版本，没有 KB generation manifest、内容更新、并发版本合并、影子重建与回滚。
+- V3 已编写单文档更新、CAS 发布、回滚和版本管理代码，待验证；整库 generation manifest、跨文档原子发布、并发合并和影子重建尚未实现。
 - 解析/向量化在一个可重试 job 内完成，中断可重新计算；还没有逐阶段产物检查点。失败任务保留 PG 可重试列表，尚未完成独立 MQ DLQ 运维流程。
-- 文档删除立即阻止读取，但原件/向量保留；物理 GC、孤立对象回收、备份删除传播将在生命周期阶段实现。
+- 文档逻辑删除先阻止读取，原件/向量保留。V3 已编写保留期预览、显式排队、单租户 GC 和引用 tombstone；默认不启动回收进程。孤立对象、S3 历史 object versions、备份删除传播仍待实现。
 - 无 OCR、复杂版面质量审核、病毒扫描、解析子进程硬超时；当前只允许可信本地样本，不开放公网文件接入。
 - 已实现 hybrid/rerank 和合成检索评测；仍无 rewrite、父块、LLM 回答/SSE/会话、经审核业务质量集、上传/存储/费用配额和 HA/PITR 演练。检索限流不代表所有配额已完成。
-- 当前 UI 每 4 秒查询任务状态，不提供任务 SSE；列表最多 100 项，后续补游标分页和批量上传。
+- 当前 UI 每 4 秒刷新文档任务列表，不提供任务 SSE；KB/文档列表最多 100 项。V3 版本和发布记录有游标分页，版本面板手动刷新；批量上传和回收站页面待补。
 - OIDC 验签接口已实现，但尚未对接实际企业 IdP 和组同步；开发账号只用于本机验证。
 - 生产配置校验只是必要条件，不能替代安全回归、权限撤销在途测试、负载与恢复验收。
 
-下一批优先补充经审核业务评测集，根据失败样本决定 rewrite，并推进版本更新/删除回收。Java 完整 Agent 接入必须与任务租户改造一起交付。
+下一步由其他模型验证 V3 迁移、权限、并发与回收恢复，再安排部署。后续开发推进回答/证据门禁及生命周期剩余项；rewrite 结合业务失败样本决定，Java 完整 Agent 接入必须与任务租户改造一起交付。
 
 
 ## V2 操作与复现
 
-现有 V1 数据无需重传。`up` 自动执行 0002 加法迁移和幂等词法回填，保留原向量与引用。升级前后可以核对旧数据：
+以下是 V2 历史操作说明。V1 → V2 的 0002 为加法迁移并提供幂等词法回填，保留原向量与引用；当前源码还含 0003，不能照此作为 V3 不停机升级流程。V3 按上文专门升级步骤执行。旧数据核对命令：
 
 ```powershell
 # 先创建 .rag-local；before 快照文件只能创建一次，after 读取同一文件

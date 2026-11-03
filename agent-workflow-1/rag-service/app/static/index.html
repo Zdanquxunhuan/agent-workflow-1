@@ -24,7 +24,23 @@
 <section class="card"><h2>访问权限</h2><p class="muted small">为本租户已有成员授予当前知识库权限。开发环境预置 admin、alice、bob。</p>
 <form id="grant"><div class="search-row"><input id="grant-subject" placeholder="成员 ID" required><select id="grant-role"><option value="reader">只读</option><option value="contributor">上传</option><option value="manager">管理</option></select><button>授权</button></div></form>
 <button class="quiet" id="revoke">撤销上面填写的成员权限</button></section>
-<footer>Knowledge Studio / Version 2 · 混合检索与质量诊断</footer></main>
+<section class="card" id="version-panel" hidden>
+<div class="section-head"><h2 id="version-title">文档版本</h2><button id="version-close" type="button">关闭</button></div>
+<p id="version-info" class="muted"></p><div id="version-notice" role="status"></div>
+<form id="version-upload"><label>上传新版 <input id="version-file" type="file" accept=".txt,.md,.pdf,.docx" required></label>
+<label>修改说明 <input id="version-note" maxlength="1000" placeholder="例如：更新退款审批条件"></label>
+<label><input id="version-auto" type="checkbox"> 处理成功后自动发布（内容修订号未变化时）</label>
+<button id="version-submit" class="primary">上传新版</button></form>
+<div class="section-head"><h3>版本历史</h3><button id="version-refresh" type="button">刷新</button></div>
+<div id="version-list"></div><button id="version-more" type="button" hidden>加载更早版本</button>
+<div class="search-row"><select id="compare-from" aria-label="比较起始版本"></select><select id="compare-to" aria-label="比较目标版本"></select><button id="version-compare" type="button">比较索引正文</button></div>
+<p class="muted small">比较基于分块后的正文，可能包含重叠段落；过长内容会截断并提示。</p><pre id="version-diff"></pre>
+<details><summary>发布记录</summary><div id="publication-list"></div><button id="publication-more" type="button" hidden>加载更早记录</button></details>
+<div id="version-retention" hidden><h3>保留与回收</h3><p class="muted small">回收会永久删除旧版原件与索引，保留版本元数据和引用失效记录。请先预览保护规则。</p>
+<button id="retention-preview" type="button">预览可回收版本</button><div id="retention-list"></div>
+<button id="retention-submit" type="button" hidden>回收已选版本</button></div>
+</section>
+<footer>Knowledge Studio / Version 3 · 知识版本与发布治理</footer></main>
 <dialog id="citation-dialog"><h2 id="citation-title"></h2><pre id="citation-text"></pre><button id="close-dialog">关闭</button></dialog>
-<script src="/static/app.js"></script></body></html>
+<script src="/static/app.js"></script><script src="/static/versions.js"></script></body></html>
 

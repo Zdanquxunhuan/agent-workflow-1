@@ -4,7 +4,6 @@ import time
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Annotated
-from urllib.parse import quote
 from uuid import UUID, uuid4
 
 import httpx
@@ -12,7 +11,7 @@ import jwt
 import psycopg
 from fastapi import Depends, FastAPI, File, Header, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from botocore.exceptions import BotoCoreError, ClientError
@@ -22,12 +21,15 @@ from app.config import settings
 from app.db import transaction, pool
 from app.errors import RagError
 from app.parsing import validate_file
-from app.storage import get_object, put_object, s3
+from app.storage import put_object, s3
 from app.retrieval import pipeline
 from app.retrieval.contracts import SearchResponse, SearchDebugResponse
 from app.retrieval.database import create_pool
 from app.retrieval.lexical import tokenizer
 from app.retrieval.profiles import PROFILES
+from app import lifecycle
+from app.version_api import router as version_router, download_version
+from app.retention import router as retention_router
 
 @asynccontextmanager
 async def lifespan(app):
@@ -39,6 +41,8 @@ async def lifespan(app):
         conn.execute("SELECT 1 FROM knowledge_bases LIMIT 1")
         conn.execute("SELECT 1 FROM chunk_lexical LIMIT 1")
         conn.execute("SELECT 1 FROM search_admissions LIMIT 1")
+        conn.execute("SELECT content_revision FROM documents LIMIT 1")
+        conn.execute("SELECT 1 FROM publication_events LIMIT 1")
     tokenizer()  # Warm up segmentation outside the request deadline.
     async with create_pool() as search_pool, httpx.AsyncClient(
             limits=httpx.Limits(max_connections=8, max_keepalive_connections=4), follow_redirects=False) as model_http:
@@ -51,8 +55,11 @@ async def lifespan(app):
             pool.cache_clear()
 
 
-app = FastAPI(title="Workflow RAG", version="0.2.0", description="Authorized hybrid retrieval and diagnostics",
+app = FastAPI(title="Workflow RAG", version="0.3.0", description="Versioned knowledge lifecycle and authorized retrieval",
               lifespan=lifespan)
+app.include_router(version_router)
+app.include_router(retention_router)
+
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 User = Annotated[Principal, Depends(principal)]
@@ -252,16 +259,16 @@ def upload(kb_id: UUID, user: User, file: UploadFile = File(),
         if existing:
             if existing["request_hash"] != request_hash:
                 raise RagError("IDEMPOTENCY_CONFLICT", "Key already used for a different upload", 409)
-            return {"job_id": existing["id"], "document_id": existing["document_id"], "replayed": True}
+            return {"job_id": existing["id"], "document_id": existing["document_id"], "version_id": existing["version_id"], "replayed": True}
         doc_id, version_id, job_id = uuid4(), uuid4(), uuid4()
         key = f"{user.tenant_id}/{doc_id}/{version_id}/original"
         # Small-file proxy upload. Object store is not part of this DB transaction;
         # orphan cleanup is documented separately, and a job never references a partial PUT.
         put_object(key, data)
-        conn.execute("INSERT INTO documents(tenant_id,id,kb_id,title) VALUES(%s,%s,%s,%s)",
+        conn.execute("INSERT INTO documents(tenant_id,id,kb_id,title,version_counter) VALUES(%s,%s,%s,%s,1)",
                      (user.tenant_id, doc_id, kb_id, filename))
-        conn.execute("""INSERT INTO document_versions(tenant_id,id,document_id,object_key,filename,sha256,size_bytes)
-          VALUES(%s,%s,%s,%s,%s,%s,%s)""", (user.tenant_id, version_id, doc_id, key, filename, checksum, len(data)))
+        conn.execute("""INSERT INTO document_versions(tenant_id,id,document_id,object_key,filename,sha256,size_bytes,created_by)
+          VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""", (user.tenant_id, version_id, doc_id, key, filename, checksum, len(data), user.subject))
         conn.execute("""INSERT INTO ingestion_jobs(tenant_id,id,document_id,version_id,actor,idempotency_key,request_hash)
           VALUES(%s,%s,%s,%s,%s,%s,%s)""", (user.tenant_id, job_id, doc_id, version_id,
                                            user.subject, idempotency_key, request_hash))
@@ -274,13 +281,18 @@ def upload(kb_id: UUID, user: User, file: UploadFile = File(),
 @app.get("/api/v1/knowledge-bases/{kb_id}/documents")
 def documents(kb_id: UUID, user: User):
     with transaction(user.tenant_id) as conn:
-        require_kb(conn, user, kb_id)
-        rows = conn.execute("""SELECT d.id,d.title,d.active_version_id,d.revision,j.id AS job_id,j.state,
+        kb_role = require_kb(conn, user, kb_id)
+        manages = lifecycle.manager(conn, user, kb_id)
+        writes = manages or kb_role['kb_role'] == 'contributor'
+        rows = conn.execute("""SELECT d.id,d.title,d.active_version_id,d.revision,d.content_revision,d.version_counter,j.id AS job_id,j.state,
           j.progress,j.error_code,j.error_message FROM documents d
-          LEFT JOIN ingestion_jobs j ON j.tenant_id=d.tenant_id AND j.document_id=d.id
+          LEFT JOIN LATERAL (SELECT x.* FROM ingestion_jobs x JOIN document_versions v
+            ON v.tenant_id=x.tenant_id AND v.id=x.version_id WHERE x.tenant_id=d.tenant_id AND x.document_id=d.id
+            AND (v.first_published_at IS NOT NULL OR %s OR (%s AND v.created_by=%s))
+            ORDER BY x.created_at DESC,x.id DESC LIMIT 1) j ON true
           WHERE d.tenant_id=%s AND d.kb_id=%s AND d.deleted_at IS NULL
           AND (d.allowed_subjects IS NULL OR %s=ANY(d.allowed_subjects))
-          ORDER BY d.created_at DESC LIMIT 100""", (user.tenant_id, kb_id, user.subject)).fetchall()
+          ORDER BY d.created_at DESC LIMIT 100""", (manages, writes, user.subject, user.tenant_id, kb_id, user.subject)).fetchall()
     return {"items": rows}
 
 
@@ -292,18 +304,25 @@ def job_status(job_id: UUID, user: User):
                            (user.tenant_id, job_id)).fetchone()
         if not row:
             raise RagError("NOT_FOUND", "Job not found", 404)
-        document_visible(conn, user, row["document_id"])
+        doc = document_visible(conn, user, row["document_id"])
+        lifecycle.get_version(conn, user, doc, row['version_id'])
         return row
 
 
 @app.post("/api/v1/jobs/{job_id}/retry")
 def retry_job(job_id: UUID, user: User):
     with transaction(user.tenant_id) as conn:
-        job = conn.execute("SELECT * FROM ingestion_jobs WHERE tenant_id=%s AND id=%s FOR UPDATE",
+        job = conn.execute("SELECT * FROM ingestion_jobs WHERE tenant_id=%s AND id=%s",
                            (user.tenant_id, job_id)).fetchone()
         if not job:
             raise RagError("NOT_FOUND", "Job not found", 404)
-        document_visible(conn, user, job["document_id"], manage=True)
+        lifecycle.lock_document(conn, user, job["document_id"], manage=True)
+        job = conn.execute('SELECT * FROM ingestion_jobs WHERE tenant_id=%s AND id=%s FOR UPDATE',
+                           (user.tenant_id, job_id)).fetchone()
+        version = conn.execute('SELECT lifecycle FROM document_versions WHERE tenant_id=%s AND id=%s',
+                               (user.tenant_id, job['version_id'])).fetchone()
+        if version['lifecycle'] != 'PROCESSING':
+            raise RagError('INVALID_STATE', 'Completed or retiring versions cannot be retried/cancelled', 409)
         if job["state"] != "FAILED":
             raise RagError("INVALID_STATE", "Only failed jobs can be retried", 409)
         conn.execute("""UPDATE ingestion_jobs SET state='QUEUED',attempt=0,fence=fence+1,
@@ -321,7 +340,13 @@ def cancel_job(job_id: UUID, user: User):
         job = conn.execute("SELECT * FROM ingestion_jobs WHERE tenant_id=%s AND id=%s", (user.tenant_id, job_id)).fetchone()
         if not job:
             raise RagError("NOT_FOUND", "Job not found", 404)
-        document_visible(conn, user, job["document_id"], manage=True)
+        lifecycle.lock_document(conn, user, job["document_id"], manage=True)
+        job = conn.execute('SELECT * FROM ingestion_jobs WHERE tenant_id=%s AND id=%s FOR UPDATE',
+                           (user.tenant_id, job_id)).fetchone()
+        version = conn.execute('SELECT lifecycle FROM document_versions WHERE tenant_id=%s AND id=%s',
+                               (user.tenant_id, job['version_id'])).fetchone()
+        if version['lifecycle'] != 'PROCESSING':
+            raise RagError('INVALID_STATE', 'Completed or retiring versions cannot be retried/cancelled', 409)
         changed = conn.execute("""UPDATE ingestion_jobs SET state='CANCELLED',fence=fence+1,
           lease_until=NULL,updated_at=now() WHERE tenant_id=%s AND id=%s AND state<>'SUCCEEDED' RETURNING id""",
                                (user.tenant_id, job_id)).fetchone()
@@ -353,12 +378,18 @@ def document_acl(doc_id: UUID, body: DocumentACL, user: User):
 def delete_document(doc_id: UUID, user: User):
     with transaction(user.tenant_id) as conn:
         document_visible(conn, user, doc_id, manage=True)
-        conn.execute("UPDATE documents SET deleted_at=now(),revision=revision+1 WHERE tenant_id=%s AND id=%s",
-                     (user.tenant_id, doc_id))
+        # Document update acquires the same lock used by Worker publication and retention.
+        doc = conn.execute('SELECT * FROM documents WHERE tenant_id=%s AND id=%s FOR UPDATE',
+                           (user.tenant_id, doc_id)).fetchone()
+        document_visible(conn, user, doc_id, manage=True)
+        conn.execute('UPDATE document_versions SET retired_at=now() WHERE tenant_id=%s AND id=%s',
+                     (user.tenant_id, doc['active_version_id']))
+        conn.execute('UPDATE documents SET deleted_at=now(),revision=revision+1,content_revision=content_revision+1,'
+                     'active_version_id=NULL WHERE tenant_id=%s AND id=%s', (user.tenant_id, doc_id))
         conn.execute("""UPDATE ingestion_jobs SET state='CANCELLED',fence=fence+1,lease_until=NULL,updated_at=now()
           WHERE tenant_id=%s AND document_id=%s AND state<>'SUCCEEDED'""", (user.tenant_id, doc_id))
         audit(conn, user, "DOCUMENT_DELETED", doc_id)
-    return {"status": "deleted", "physical_cleanup": "retained_pending_retention_policy"}
+    return {"status": "deleted", "physical_cleanup": "retained_until_explicit_retention_request"}
 
 
 @app.post("/api/v1/search", response_model=SearchResponse)
@@ -374,30 +405,32 @@ async def search_debug(body: Search, user: User, request: Request):
 @app.get("/api/v1/citations/{chunk_id}")
 def citation(chunk_id: UUID, user: User):
     with transaction(user.tenant_id) as conn:
-        row = conn.execute("SELECT * FROM chunks WHERE tenant_id=%s AND id=%s", (user.tenant_id, chunk_id)).fetchone()
+        row = conn.execute('SELECT * FROM chunks WHERE tenant_id=%s AND id=%s', (user.tenant_id, chunk_id)).fetchone()
         if not row:
-            raise RagError("NOT_FOUND", "Citation not found", 404)
-        doc = document_visible(conn, user, row["document_id"])
-        if doc["active_version_id"] != row["version_id"]:
-            raise RagError("NOT_FOUND", "Citation no longer current", 404)
-        return {"chunk_id": row["id"], "document_id": row["document_id"], "version_id": row["version_id"],
-                "title": doc["title"], "text": row["content"], "page": row["page"], "section": row["section"],
-                "content_hash": row["content_hash"]}
+            tombstone = conn.execute('SELECT document_id,version_id FROM citation_tombstones WHERE tenant_id=%s AND chunk_id=%s',
+                                     (user.tenant_id, chunk_id)).fetchone()
+            if tombstone:
+                doc = document_visible(conn, user, tombstone['document_id'])
+                version = lifecycle.get_version(conn, user, doc, tombstone['version_id'])
+                if not version['first_published_at']:
+                    raise RagError('NOT_FOUND', 'Citation is not published', 404)
+                raise RagError('CITATION_GONE', 'Original cited version was removed by retention policy', 410)
+            raise RagError('NOT_FOUND', 'Citation not found', 404)
+        doc = document_visible(conn, user, row['document_id'])
+        version = lifecycle.get_version(conn, user, doc, row['version_id'])
+        lifecycle.require_retained(version)
+        if not version['first_published_at']:
+            raise RagError('NOT_FOUND', 'Citation is not published', 404)
+        return {'chunk_id': row['id'], 'document_id': doc['id'], 'version_id': version['id'],
+                'version_number': version['version_number'], 'is_current': doc['active_version_id'] == version['id'],
+                'status': 'current' if doc['active_version_id'] == version['id'] else 'historical',
+                'title': version['filename'], 'text': row['content'], 'page': row['page'], 'section': row['section'],
+                'content_hash': row['content_hash']}
 
 
-@app.get("/api/v1/documents/{doc_id}/original")
+@app.get('/api/v1/documents/{doc_id}/original')
 def original(doc_id: UUID, user: User):
-    with transaction(user.tenant_id) as conn:
-        doc = document_visible(conn, user, doc_id)
-        version = conn.execute("SELECT * FROM document_versions WHERE tenant_id=%s AND id=%s",
-                               (user.tenant_id, doc["active_version_id"])).fetchone()
-        if not version:
-            raise RagError("NOT_FOUND", "No published original", 404)
-        data = get_object(version["object_key"])
-        document_visible(conn, user, doc_id)  # Recheck after the potentially slow object download.
-        audit(conn, user, "ORIGINAL_DOWNLOADED", doc_id)
-    return Response(data, media_type="application/octet-stream",
-                    headers={"Content-Disposition": "attachment; filename*=UTF-8''" + quote(version["filename"])})
+    return download_version(doc_id, None, user)
 
 
 static = Path(__file__).parent / "static"

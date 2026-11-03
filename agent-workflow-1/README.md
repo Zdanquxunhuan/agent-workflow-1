@@ -17,9 +17,11 @@
 
 ## 运行
 
-### 独立 RAG（Version 2）
+### 独立 RAG（Version 3，基础回归通过）
 
 新增 FastAPI、PostgreSQL/pgvector、RabbitMQ、对象存储和真实 BGE-M3 的文档入库/检索链路，包含中文词法/编号混合检索、RRF、独立 reranker、检索诊断与合成评测工具。运行与当前限制见 [RAG 实现说明](docs/rag/implementation.md)，完整目标见 [生产化计划](rag-production-to.md)。这部分仍在分阶段实现，尚未完成生产发布验收。
+
+V3 增加文档多版本、人工/自动发布、内容修订冲突检测、回滚、历史引用、版本页面和可恢复的保留期回收。代码与升级说明见 [V3 交付文档](docs/rag/version-3.md)。后续按用户授权完成基础测试：53 项通过，其中新增 V3 16 项，详见 [V3 测试记录](docs/rag/verification-v3-2026-11-03.md)。未升级工作库或部署 V3，未做完整生产验收；升级步骤与剩余验证范围见交付文档。
 
 ### 独立业务系统接入（本地 Docker / 合成数据）
 

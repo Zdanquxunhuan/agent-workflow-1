@@ -1,8 +1,8 @@
 const $ = (id) => document.getElementById(id);
 let token = '', kb = null, polling = null, searchGeneration = 0, identityGeneration = 0;
 const profileNames = {'dense-v2':'语义检索', 'lexical-v2':'中文关键词与编号', 'hybrid-v2':'混合检索', 'hybrid-rerank-v2':'混合检索 + 模型重排'};
-function resetSearch(){ searchGeneration++; $('results').replaceChildren(); $('search-status').textContent=''; $('debug-panel').hidden=true; $('debug-rows').replaceChildren(); $('debug-summary').textContent=''; $('search-button').disabled=false; $('citation-dialog').close(); $('citation-text').textContent=''; }
-const states = {QUEUED:'等待处理',PARSING:'解析文档',EMBEDDING:'向量化',INDEXING:'写入索引',SUCCEEDED:'已发布',FAILED:'处理失败',RETRY_WAIT:'等待重试',CANCELLED:'已取消'};
+function resetSearch(){ window.closeVersionPanel?.(); searchGeneration++; $('results').replaceChildren(); $('search-status').textContent=''; $('debug-panel').hidden=true; $('debug-rows').replaceChildren(); $('debug-summary').textContent=''; $('search-button').disabled=false; $('citation-dialog').close(); $('citation-text').textContent=''; }
+const states = {QUEUED:'等待处理',PARSING:'解析文档',EMBEDDING:'向量化',INDEXING:'写入索引',SUCCEEDED:'处理完成',FAILED:'处理失败',RETRY_WAIT:'等待重试',CANCELLED:'已取消'};
 function notice(message) { $('notice').textContent = message; $('notice').hidden = !message; }
 async function api(path, options={}) {
   const headers = new Headers(options.headers || {});
@@ -41,10 +41,11 @@ async function loadDocuments(){
   if(!data.items.length){$('documents').textContent='还没有文档，上传第一份资料开始建立知识库';return;}
   for(const doc of data.items){
     const row=node('div',undefined,'doc'), info=node('div',undefined,'doc-info'), actions=node('div',undefined,'doc-actions');
-    info.append(node('div',doc.title,'doc-name'),node('div',`${states[doc.state]||doc.state} · ${doc.progress||0}%${doc.error_message?' · '+doc.error_message:''}`,'doc-state'));
+    info.append(node('div',doc.title,'doc-name'),node('div',`${doc.active_version_id?'当前版本可检索':'暂无生效版本'} · 最新任务：${states[doc.state]||doc.state} · ${doc.progress||0}%${doc.error_message?' · '+doc.error_message:''}`,'doc-state'));
     if(doc.state==='FAILED')actions.append(button('重试',async()=>{await api(`/jobs/${doc.job_id}/retry`,{method:'POST'});await loadDocuments();}));
     if(['QUEUED','PARSING','EMBEDDING','INDEXING','RETRY_WAIT'].includes(doc.state))actions.append(button('取消',async()=>{await api(`/jobs/${doc.job_id}/cancel`,{method:'POST'});await loadDocuments();}));
-    actions.append(button('删除',async()=>{if(confirm(`删除文档「${doc.title}」？它将立即退出检索。`)){await api(`/documents/${doc.id}`,{method:'DELETE'});await loadDocuments();}}));
+    actions.append(button('版本管理',()=>window.openVersionPanel(doc)));
+    actions.append(button('删除',async()=>{if(confirm(`删除文档「${doc.title}」？它将立即退出检索。`)){await api(`/documents/${doc.id}`,{method:'DELETE'});resetSearch();await loadDocuments();}}));
     row.append(info,actions);$('documents').append(row);
   }
 }
@@ -60,7 +61,7 @@ $('search').onsubmit=e=>{e.preventDefault();run(async()=>{if(!kb)throw new Error
     $('results').replaceChildren();
     $('search-status').textContent=`${profileNames[data.retrieval_profile_id]} · ${data.timings_ms.total_ms} ms · ${data.hits.length} 条证据${data.status==='degraded'?' · 已降级：'+data.degraded_components.join('、'):''}`;
     if(!data.hits.length)$('results').textContent='没有找到当前身份可访问的已发布证据。';
-    for(const hit of data.hits){const el=node('article',undefined,'hit');el.append(node('h3',hit.title),node('p',hit.text),node('div',`版本 ${hit.document_version_id}${hit.page?' · 第 '+hit.page+' 页':''}`,'meta'),button('查看引用',async()=>{const c=await api(`/citations/${hit.citation.id}`);if(generation!==searchGeneration)return;$('citation-title').textContent=c.title;$('citation-text').textContent=c.text;$('citation-dialog').showModal();}));$('results').append(el);}
+    for(const hit of data.hits){const el=node('article',undefined,'hit');el.append(node('h3',hit.title),node('p',hit.text),node('div',`版本 ${hit.document_version_id}${hit.page?' · 第 '+hit.page+' 页':''}`,'meta'),button('查看引用',async()=>{const c=await api(`/citations/${hit.citation.id}`);if(generation!==searchGeneration)return;$('citation-title').textContent=c.title+(c.status==='historical'?` · 历史版本 v${c.version_number}（非当前生效）`:'');$('citation-text').textContent=c.text;$('citation-dialog').showModal();}));$('results').append(el);}
     if(data.debug){$('debug-panel').hidden=false;$('debug-panel').open=true;
       $('debug-summary').textContent=JSON.stringify({profile:data.retrieval_profile_id,fingerprint:data.profile_fingerprint,query:data.debug.normalized_query,terms:data.debug.lexical_terms,identifiers:data.debug.identifiers,timings_ms:data.timings_ms,context_tokens:data.context_tokens,parameters:data.debug.parameters},null,2);
       for(const row of data.debug.candidates){const tr=node('tr');tr.append(node('td',`${row.title}\n${row.chunk_id}`),node('td',JSON.stringify(row.channel_ranks)),node('td',`${row.fusion_rank} (${row.fusion_score.toFixed(5)})`),node('td',row.rerank_score==null?'未重排':row.rerank_score.toFixed(4)),node('td',row.selected?'是':'否'));$('debug-rows').append(tr);}}

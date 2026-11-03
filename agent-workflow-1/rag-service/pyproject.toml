@@ -1,6 +1,6 @@
 [project]
 name = "workflow-rag"
-version = "0.2.0"
+version = "0.3.0"
 description = "Tenant-scoped asynchronous document ingestion and retrieval"
 requires-python = ">=3.12,<3.14"
 dynamic = ["dependencies"]

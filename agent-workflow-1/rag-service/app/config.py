@@ -42,9 +42,13 @@ class Settings(BaseSettings):
     reranker_profile: str = "bge-reranker-v2-m3-953dc6f-fp32-512-v1"
     search_requests_per_minute: int = 120
     search_tenant_concurrency: int = 2
+    version_retention_days: int = 30
+    version_keep_latest: int = 3
 
     @model_validator(mode="after")
     def validate_config(self):
+        if self.version_retention_days < 1 or self.version_keep_latest < 1:
+            raise ValueError('Version retention must protect at least one day and one version')
         if self.auth_mode not in {"local", "oidc"}:
             raise ValueError("RAG_AUTH_MODE must be local or oidc")
         if self.auth_mode == "local" and len(self.auth_secret) < 32:

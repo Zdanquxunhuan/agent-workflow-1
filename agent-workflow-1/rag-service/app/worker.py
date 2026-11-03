@@ -11,6 +11,7 @@ from app.parsing import parse
 from app.queue import celery_app
 from app.storage import get_object
 from app.retrieval.lexical import PROFILE as LEXICAL_PROFILE, index_payload
+from app.lifecycle import activate
 
 log = logging.getLogger(__name__)
 
@@ -71,6 +72,12 @@ def publish(tenant, job, chunks):
                                   (tenant, job["actor"], doc["kb_id"])).fetchone()
         if not member or not permission:
             raise RagError("PUBLISH_FORBIDDEN", "Upload permission revoked before publication", 403)
+        if doc['allowed_subjects'] is not None and job['actor'] not in doc['allowed_subjects']:
+            raise RagError('PUBLISH_FORBIDDEN', 'Document access revoked before indexing', 403)
+        version = conn.execute('SELECT * FROM document_versions WHERE tenant_id=%s AND id=%s FOR UPDATE',
+                               (tenant, job['version_id'])).fetchone()
+        if version['lifecycle'] != 'PROCESSING':
+            raise LostLease()
         conn.execute("DELETE FROM chunks WHERE tenant_id=%s AND version_id=%s", (tenant, job["version_id"]))
         with conn.cursor() as cur:
             cur.executemany("""INSERT INTO chunks(tenant_id,id,document_id,version_id,ordinal,content,
@@ -83,12 +90,19 @@ def publish(tenant, job, chunks):
               VALUES(%s,%s,%s,%s,%s,%s)""", [
                 (tenant, chunk_id, LEXICAL_PROFILE, c["content_hash"], lexical[0], lexical[1])
                 for chunk_id, c, lexical in prepared])
-        conn.execute("UPDATE documents SET active_version_id=%s WHERE tenant_id=%s AND id=%s",
-                     (job["version_id"], tenant, job["document_id"]))
+        version = conn.execute("UPDATE document_versions SET lifecycle='READY',ready_at=now(),"
+                               "embedding_profile=%s,lexical_profile=%s WHERE tenant_id=%s AND id=%s RETURNING *",
+                               (settings().embedding_profile, LEXICAL_PROFILE, tenant, job['version_id'])).fetchone()
+        if version['auto_publish']:
+            if doc['content_revision'] == version['base_revision']:
+                activate(conn, doc, version, job['actor'], 'auto_publish', version['change_note'])
+            else:
+                conn.execute("UPDATE document_versions SET publication_note='CONTENT_REVISION_CONFLICT' "
+                             'WHERE tenant_id=%s AND id=%s', (tenant, version['id']))
         conn.execute("""UPDATE ingestion_jobs SET state='SUCCEEDED',progress=100,lease_until=NULL,
           updated_at=now() WHERE tenant_id=%s AND id=%s""", (tenant, job["id"]))
         conn.execute("INSERT INTO audit_events(tenant_id,id,actor,action,resource_id) VALUES(%s,%s,%s,%s,%s)",
-                     (tenant, uuid4(), job["actor"], "DOCUMENT_PUBLISHED", str(job["document_id"])))
+                     (tenant, uuid4(), job["actor"], "VERSION_READY", str(job["version_id"])))
 
 
 @celery_app.task(name="rag.ingest")

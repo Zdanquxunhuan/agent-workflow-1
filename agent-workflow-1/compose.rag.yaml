@@ -12,6 +12,8 @@ x-rag-environment: &rag-environment
   RAG_RERANKER_URL: http://reranker:8093
   RAG_RERANKER_KEY: rag-reranker-local-development-key
   RAG_RETRIEVAL_PROFILE: ${RAG_RETRIEVAL_PROFILE:-hybrid-rerank-v2}
+  RAG_VERSION_RETENTION_DAYS: ${RAG_VERSION_RETENTION_DAYS:-30}
+  RAG_VERSION_KEEP_LATEST: ${RAG_VERSION_KEEP_LATEST:-3}
   RAG_AUTH_SECRET: rag-local-development-secret-at-least-32-bytes
   RAG_AUTH_ISSUER: rag-local
   RAG_DEV_LOGIN_ENABLED: "true"
@@ -121,6 +123,18 @@ services:
     command: ["python", "-m", "app.backfill", "--all-tenants"]
     depends_on:
       seed: {condition: service_completed_successfully}
+  version-gc:
+    profiles: ["maintenance"]
+    image: workflow-rag-api:local
+    environment:
+      <<: *rag-environment
+      RAG_DATABASE_URL: postgresql://rag_worker:rag_dev_only@postgres:5432/rag
+    command: ["python", "-m", "app.version_gc", "--tenant", "${RAG_GC_TENANT:-demo}"]
+    depends_on:
+      seed: {condition: service_completed_successfully}
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
   reranker:
     image: workflow-rag-embedding:local
     command: ["uvicorn", "reranker_server:app", "--host", "0.0.0.0", "--port", "8093", "--no-access-log"]

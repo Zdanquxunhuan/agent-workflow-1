@@ -1,8 +1,10 @@
 # RAG 生产化功能清单与实施计划
 
-更新时间：2026-11-02（Version 2）。**当前已实现文档异步入库、授权混合检索、独立重排、证据预算与检索诊断，尚未达到生产发布条件。** M3 的 N01–N03 工程能力已落地；业务标注验收、rewrite、父块、内容更新、回答与完整 Agent 租户改造仍待完成。
+更新时间：2026-11-03（Version 3 基础回归通过）。**当前代码覆盖文档异步入库、授权混合检索、独立重排、证据预算、检索诊断，以及单文档更新/发布/回滚/回收，尚未达到生产发布条件。** 用户后续授权测试并要求控制范围：合计 53 项通过，其中 V3 新增 16 项。仅在隔离库执行迁移/测试，工作库未升级，V3 未部署。业务标注验收、rewrite、父块、整库重建、回答与完整 Agent 租户改造仍待完成。
 
 状态依据：[运行说明](docs/rag/implementation.md)、[V1 历史验收](docs/rag/verification-2026-11-02.md)、[V2 验收](docs/rag/verification-v2-2026-11-02.md)、[ADR-002](docs/rag/adr-002-hybrid-retrieval.md)。V2 增加隔离评测 runner、合成语料、检索与权限回归；具体实测边界以 V2 记录为准，不替代业务质量、压力、HA 和恢复验收。
+
+V3 范围见 [开发交付文档](docs/rag/version-3.md)，实际执行范围见 [V3 测试记录](docs/rag/verification-v3-2026-11-03.md)。[测试交接清单](docs/rag/testing-v3-handoff.md) 保留完整候选场景，未全部执行。下文“待验证”指剩余迁移演练、端到端/页面或生产验证，不否定已通过的基础回归；不能引用 V1/V2 数字作为 V3 证据。
 
 本文 `[x]` 表示该条明确范围已实现，验证边界以验收记录为准；`[ ]` 表示仍有工作未完成。涉及多项能力的总项标为“部分完成”，不因基础能力落地而把整个生产阶段勾选完成。容量、时延和质量指标仍是待实测的首发目标。
 
@@ -17,11 +19,11 @@ FastAPI 是 API 框架，不会自动解决生产可靠性。已把解析、切�
 | 实现位置 | 已实现 | 距离生产目标仍缺 |
 | --- | --- | --- |
 | [API 与权限](rag-service/app/main.py)、[身份校验](rag-service/app/auth.py) | KB 创建/列表、用户 ACL、文档读权限收窄、引用/原件鉴权、开发登录、OIDC 验签代码 | 实际企业 IdP 联调、组/服务账号、正式委托、策略管理 |
-| [数据库迁移](rag-service/migrations/versions/0001_initial.py) | PG/pgvector、租户复合约束与 FORCE RLS、分离运行角色、首版文档原子发布 | 内容更新、KB generation manifest、CAS、影子重建、回滚与 GC |
+| [迁移](rag-service/migrations/versions/0003_document_lifecycle.py)、[生命周期](rag-service/app/lifecycle.py)、[GC](rag-service/app/version_gc.py) | 既有 PG/pgvector/RLS；V3 已开发版本编号、内容修订 CAS、发布/回滚、保留期回收和引用 tombstone | V3 独立验证；KB generation manifest、影子重建、孤立对象/S3 历史版本/备份清理 |
 | [解析](rag-service/app/parsing.py)、[Worker](rag-service/app/worker.py)、[Relay](rag-service/app/dispatcher.py) | 四类基础格式、token 切块、Outbox/MQ、租约/心跳/fencing、有限重试、取消 | OCR/HTML/质量审核、解析沙箱、阶段产物检查点、DLQ 运维与实进程故障演练 |
 | [Embedding](rag-inference/server.py)、[Reranker](rag-inference/reranker_server.py) | 两个固定 revision 的真实 CPU 模型、常驻/预热/就绪、reranker 文件大小/hash 校验 | 动态 batch、GPU 容量基准、线上与导入资源隔离、完整 profile 注册 |
 | [检索管线](rag-service/app/retrieval/pipeline.py) | dense-exact + 中文词法/编号、RRF、独立 rerank、去重/预算、权限复核、deadline/限流/明确降级 | rewrite、父块/相邻块、业务质量调优、规模压测、LLM 回答 |
-| [管理页面](rag-service/app/static/index.html) | 原生 HTML/CSS/JS，单文件上传、状态轮询、四种检索 profile、manager 诊断、引用、用户授权/撤销 | 批量上传、解析预览、版本管理、问答/SSE、反馈与配额 |
+| [管理页面](rag-service/app/static/index.html)、[版本面板](rag-service/app/static/versions.js) | 单文件上传、任务轮询、检索/诊断/引用/授权；V3 已开发版本历史、上传/发布/回滚、文本比较、保留保护和回收预览 | V3 页面验证；批量上传、复杂解析预览、回收站、问答/SSE、反馈与配额 |
 | [Java HTTP 客户端](src/main/java/com/yu/agent/workflow/application/HttpRagKnowledgeSearchClient.java)、[查询入口](src/main/java/com/yu/agent/workflow/api/KnowledgeController.java) | local/http 适配、可信 JWT 检查、完整响应 deadline/大小限制、无状态桥接、禁止故障回 demo | 任务/审计/幂等表的租户迁移、持久授权委托、聊天引用约束、熔断与 trace |
 | [Compose](compose.rag.yaml)、[测试](rag-service/tests/test_integration.py)、[真实验收](rag-service/scripts/acceptance.py) | 本地真实基础设施与模型运行，隔离测试库/bucket，权限和可靠性回归 | 独立 CI、经审核业务质量集、压力/恢复演练、HA/PITR、监控告警、生产发布报告 |
 
@@ -39,12 +41,12 @@ FastAPI 是 API 框架，不会自动解决生产可靠性。已把解析、切�
 | R02 | P0 | 五类格式上传、限额、校验、隔离处理、原件存储 | 部分完成：TXT/MD/文本 PDF/DOCX、10 MiB 代理上传、私有 S3；HTML、批量、扫描与沙箱待补 |
 | R03 | P0 | 结构解析、token 切块、来源坐标、质量校验 | 部分完成：token 切块、PDF 页号、正文 hash、空内容拒绝；结构/质量报告与审核待补 |
 | R04 | P0 | MQ、持久状态、Outbox、幂等、租约、重试、死信与恢复 | 部分完成：单 job 可靠入库链路已通；阶段检查点、DLQ、完整故障演练待补 |
-| R05 | P0 | BGE-M3、pgvector、版本化索引与真实模型验收 | 部分完成：真实 dense 与文档首版原子发布已验收；KB 代际/多 profile/重建待补 |
+| R05 | P0 | BGE-M3、pgvector、版本化索引与真实模型验收 | 部分完成：真实 dense/首版历史验收；V3 已开发单文档多版本及 profile 兼容检查，待验证；KB 代际/多 profile/重建待补 |
 | R06 | P1 | rewrite、中文词法、dense、融合、rerank、上下文 | V2 已实现 hybrid/RRF/rerank、完整块去重与预算；rewrite、父块/相邻块和业务质量验收待补 |
 | R07 | P0 | 无证据拒答、引用、生成前后权限；区分故障与无结果 | 部分完成：检索引用、重授权、空命中/故障区分已有；回答与生成权限复核待补 |
-| R08 | P0 | 内容更新、原子发布、删除/ACL 即时生效、迟到任务防护 | 部分完成：首版发布、逻辑删除、撤权、迟到发布防护已有；更新/回滚/物理 GC 待补 |
+| R08 | P0 | 内容更新、原子发布、删除/ACL 即时生效、迟到任务防护 | 部分完成：V3 已开发单文档更新、CAS 发布、回滚、历史引用与显式 GC，待验证；整库重建和完整删除/恢复传播待补 |
 | R09 | P1 | OCR、表格结构、解析预览、复杂文档重跑 | 部分完成：基础 DOCX 表格转文本、失败重试已有；OCR/复杂结构与审核预览待补 |
-| R10 | P1 | KB、上传、进度、版本、权限、检索调试、问答、反馈 | 部分完成：基础管理页面已联调；V2 已有 manager 检索诊断；版本、问答/反馈待补 |
+| R10 | P1 | KB、上传、进度、版本、权限、检索调试、问答、反馈 | 部分完成：基础页面及 V2 manager 检索诊断已有；V3 版本页面已开发待验证；问答/反馈/回收站待补 |
 | R11 | P1 | 问答、SSE、多轮、独立检索 API、Java Agent 与契约测试 | 部分完成：检索 API 与 Java 无状态桥接已通；完整任务/聊天接入和问答待补 |
 | R12 | P0 | 限流、配额、超时、隔离、审计、敏感处理与降级 | 部分完成：输入/响应上限、模型超时/并发锁、基础审计已有；V2 已有 PG 租户检索限流、12 秒预算和明确降级；上传/费用配额、算力隔离及完整脱敏策略待补 |
 | R13 | P0 | 标注集、质量评测、权限回归、故障/负载演练 | 部分完成：确定性回归与真实端到端烟测通过；V2 已有 20 文档/44 题合成评测；经审核业务集、系统故障与负载验收待补 |
@@ -160,7 +162,7 @@ flowchart LR
     R --> D[SUCCEEDED]
 ```
 
-以上是目标 ingestion job 的阶段，**不是文档可检索状态**。当前已经保证发布事务成功前没有可检索的半成品；目标还需支持 `NEEDS_REVIEW`、`resume_stage` 和阶段产物，以及更新失败时继续服务旧版本。
+以上是目标 ingestion job 的阶段，**不是文档可检索状态**。当前发布事务成功前没有可检索的半成品。V3 将 READY 索引与 active 发布指针分开，新版处理失败时保留旧版；该行为待独立验证。`NEEDS_REVIEW`、`resume_stage` 和阶段产物仍待实现。
 
 1. API 在 PG 同一事务写 `document_version + ingestion_job + outbox_event`。原件上传已完成才进入这个事务；失败留下的孤立对象由回收器处理。
 2. Relay 有租约地领取 Outbox，发布持久消息并等待 publisher confirm；确认后再标记已发送。发布成功后进程崩溃可能重复投递，所以消费者必须幂等。
@@ -190,7 +192,7 @@ RabbitMQ 的 publisher confirms 与 consumer ACK 是不同确认环节；Celery 
 
 ### 5.2 主要数据模型
 
-当前 [0001 迁移](rag-service/migrations/versions/0001_initial.py) 已创建 `tenants`、`tenant_memberships`、`knowledge_bases`、`kb_acl`、`documents`、`document_versions`、`ingestion_jobs`、`outbox_events`、`chunks`、`audit_events`，含租户复合约束、FORCE RLS 和运行角色授权。向量直接存 `chunks.embedding`，文档通过 `active_version_id` 指向首个完整版本；引用 ID 目前就是 chunk ID，没有独立 citations 表。
+当前 [0001 迁移](rag-service/migrations/versions/0001_initial.py) 创建租户、KB/ACL、文档/版本、入库任务/Outbox、chunks 和审计表；0002 增加词法索引与检索限流。V3 的 [0003](rag-service/migrations/versions/0003_document_lifecycle.py) 增加版本生命周期字段、`publication_events`、`version_gc_tasks`、`citation_tombstones`，含租户复合约束和 FORCE RLS，尚未执行。向量仍在 `chunks.embedding`，`active_version_id` 指向当前发布版本；引用 ID 是 chunk ID，回收后保留 tombstone。
 
 以下表格是后续完整模型目标，**不代表这些表或字段已存在**。尚缺 `group_memberships`、上传会话、chunk_sets、独立 embeddings、generation manifest、job_steps、processed_events、profile 注册、查询/回答/反馈/会话表。已有表也需后续 Alembic 增量迁移，不能修改已应用的初始迁移来升级环境。所有租户数据使用租户键，引用关系继续使用包含 tenant 的复合约束。
 
@@ -231,7 +233,9 @@ manifest 引用不可变 chunk_set，未变化的文档复用旧产物，不重�
 
 ### 5.4 更新、发布、删除与回滚
 
-当前已完成：首版 chunks 与文档 active version 在同一事务发布；逻辑删除同步屏蔽读取并使未完成 job 失效；文档 ACL 用 `expected_revision` 防止覆盖；引用/原件检查实时权限；迟到 Worker 通过 fence/租约/删除检查被拒绝。**尚无内容更新、KB manifest、影子重建、回滚或物理清理**。下面 1–8 是完整生命周期目标，需在现有首版发布基础上继续实现。
+V3 已开发单文档生命周期，尚未验证：不可变新版上传，旧版持续服务；Worker 原子写齐 dense/词法索引后标记 READY，人工发布或显式自动发布以 `content_revision` 做 CAS；冲突保留候选版；管理员可回滚已发布且 profile 兼容的版本。ACL 的 `revision` 独立管理，删除、发布、回收共用文档锁。历史引用固定原版本并复核当前权限，回收后用 tombstone 返回 410。保留期/最近 N 版/hold 保护、显式 GC 队列、租约/fencing 与重试代码见 [V3 说明](docs/rag/version-3.md)。
+
+**KB manifest、整库影子重建、跨文档原子发布、孤立对象和备份清理仍未实现。** 下面 1–8 是完整生产目标，不能把单文档 CAS 当成整库 generation CAS 已完成。
 
 1. **内容更新**：新建 document_version 和 chunk_set；旧 generation 持续服务。索引完整性、解析质量、授权与发布权限通过后才创建候选 manifest。
 2. **原子发布**：事务内以 `base_generation_id` 做 CAS 切换 KB 指针并增加 content_revision。并发发布冲突先基于最新 manifest 合并，确认同一文档没有更新冲突，不能静默覆盖另一份更新。
@@ -292,7 +296,7 @@ BGE-M3 sparse 与普通全文检索是不同通道。后续若引入 sparse/BM25
 - [ ] `/answers` 复用检索管线，生成有依据的知识回答。
 - [ ] 回答区分 `answered`、`insufficient_evidence`、`needs_clarification`、`degraded`；未经授权资源不通过回答泄露标题、存在性、计数或路径。
 - [ ] prompt 明确资料只是证据，不能改变系统指令或调用工具。文档中的“忽略规则”“泄露密钥”等属于不可信内容；关键词黑名单只能辅助，不能充当完整防护。
-- [x] 命中与引用提供 document/version/chunk ID、可得的页/章节、原文和内容 hash；URL 由服务端构造，打开时验证当前版本与权限。当前章节信息可为空，不编造位置。
+- [x] 命中与引用提供 document/version/chunk ID、可得的页/章节、原文和内容 hash；URL 由服务端构造。V3 引用固定历史版本并标注是否当前生效，读取检查实时权限与保留状态（新增语义待验证）。章节信息可为空，不编造位置。
 - [ ] 发布给用户前验证引用存在、来源属于本次授权检索、版本一致、关键陈述有支持；自动规则负责结构和可追溯性，语义支持需要评测与人工抽检，不声称检查引用 ID 就能证明回答正确。
 - [ ] 证据冲突时标明版本与适用日期、请求澄清或转人工；无证据不能让 LLM 凭常识补写公司政策。退款等动作继续受 Java 工具与审批控制。
 - [ ] 对敏感 KB 默认缓冲全文，完成校验后输出。普通 SSE 可按已校验段落发送；已发送文本无法撤回，权限变更时取消余下生成并记录，前端不把未完成流标为完成答案。
@@ -332,7 +336,7 @@ V2 检索在身份认证后共享 12 秒 deadline，embedding 4 秒、rerank 6 �
 | Tenant Admin | 管理本租户 KB 和成员，不等于其他租户管理员 |
 | Service Account | 明确绑定租户/KB/scope；调用时不能随意代入任意用户 |
 
-后续 KB 将可配置“可信上传自动发布”或“人工发布”；新版本准备完成不自动等同于可搜索。当前 RAG 以 PG 中的成员角色和 KB ACL 授权，Java JWT 的 `roles` 不会自动成为 RAG 权限；正式角色映射/授权流程仍需设计，不能把 Java `ADMIN` 继承成全平台超管。
+V3 首次上传保留自动发布，新版默认人工发布，调用者可显式开启自动发布；自动发布要求当前写权限和文档读 ACL，并受内容修订 CAS 约束。人工发布/回滚要求 manager。**目前尚无 KB 级强制审批策略，contributor 可选择自动发布，不能把默认人工发布称为不可绕过的审核流程。** 后续补 KB 策略和审批职责分离。RAG 以 PG 成员角色/KB ACL 授权，Java JWT 的 `roles` 不自动成为 RAG 权限。
 
 ### 7.2 身份贯通与防越权
 
@@ -363,7 +367,7 @@ V2 检索在身份认证后共享 12 秒 deadline，embedding 4 秒、rerank 6 �
 
 ### 8.1 已实现 API 与后续接口
 
-业务前缀 `/api/v1`；健康检查位于根路径 `/health/*`。当前路由契约见 [openapi.json](docs/rag/openapi.json)，由 FastAPI 生成；没有 `openapi.yaml`。已返回服务端生成的 `X-Request-ID`，尚未贯通 `traceparent`；当前仅上传要求 `Idempotency-Key`，仅文档 ACL 修改要求 `expected_revision`，不能泛化为所有写操作已支持。
+业务前缀 `/api/v1`；健康检查位于 `/health/*`。仓库 [openapi.json](docs/rag/openapi.json) 已通过 `scripts/export_openapi.py` 从实际路由生成 0.3.0 契约；V3 接口见 [交付文档](docs/rag/version-3.md)。上传、发布和回滚要求 `Idempotency-Key`；ACL 修改使用 `expected_revision`，新版上传/发布/回滚/回收使用 `expected_content_revision`。已返回 `X-Request-ID`，尚未贯通 `traceparent`；不能泛化为所有写操作都有幂等键。
 
 | API（除 health 外省略 `/api/v1`） | 状态 | 当前行为 / 后续工作 |
 | --- | --- | --- |
@@ -373,9 +377,12 @@ V2 检索在身份认证后共享 12 秒 deadline，embedding 4 秒、rerank 6 �
 | `POST /knowledge-bases/{kb_id}/documents` | 已实现 | multipart `file` + `Idempotency-Key`，返回 202/job_id；小文件代理上传 |
 | `POST /knowledge-bases/{kb_id}/uploads`、`POST /uploads/{id}/complete` | 待实现 | 预签名上传会话和完成校验 |
 | `GET /knowledge-bases/{kb_id}/documents` | 已实现 | 文档、处理状态、失败原因，最多 100 项；游标分页待补 |
-| `DELETE /documents/{document_id}` | 已实现 | 逻辑删除并阻止迟到发布；物理清理待补 |
+| `DELETE /documents/{document_id}` | 已实现，V3 修改待验证 | 逻辑删除、解除 active 指针、递增内容/ACL 修订并取消未成功任务；物理清理另排队 |
 | `GET /documents/{document_id}/original` | 已实现 | 已发布原件鉴权代理下载 |
-| `GET /documents/{document_id}`、`GET/POST .../versions` | 待实现 | 文档详情、历史版本、内容更新 |
+| `GET /documents/{document_id}`、`GET/POST .../versions` | V3 已开发待验证 | 详情、分页历史、新版上传与内容修订检查 |
+| `POST .../versions/{version_id}/publish`、`.../rollback` | V3 已开发待验证 | manager、CAS、幂等和发布审计；回滚要求曾发布、未回收且 profile 兼容 |
+| `GET .../versions/compare`、`.../versions/{version_id}/original`、`.../publication-events` | V3 已开发待验证 | 有界正文比较、固定版本原件、分页发布记录；草稿限制可见性 |
+| `PUT .../versions/{version_id}/retention-hold`、`POST .../retention/preview`、`.../retention/purge` | V3 已开发待验证 | 保留保护、回收预览、显式排队；GC 为独立可选进程 |
 | `POST /documents/{document_id}/reindex` | 待实现 | 指定配置重建 |
 | `PUT /documents/{document_id}/acl` | 已实现 | `subjects` 收窄/恢复继承，`expected_revision` 冲突返回 409 |
 | `GET /jobs/{job_id}`、`POST .../retry`、`POST .../cancel` | 已实现 | 状态查询、失败重试、未发布任务取消 |
@@ -383,7 +390,7 @@ V2 检索在身份认证后共享 12 秒 deadline，embedding 4 秒、rerank 6 �
 | `POST /knowledge-bases/{kb_id}/publish`、`.../rollback` | 待实现 | generation 发布/回滚 |
 | `POST /search` | 已实现 | 四种 profile 授权检索，返回证据/引用、分数类型、耗时与降级状态 |
 | `POST /search/debug` | V2 已实现 | tenant admin/选中 KB manager 可查看已授权候选、通道排名、RRF/重排与预算 |
-| `GET /citations/{chunk_id}` | 已实现 | 引用 ID 为 chunk ID，验证当前版本与实时权限 |
+| `GET /citations/{chunk_id}` | 已实现，V3 修改待验证 | 固定版本引用和 current/historical 标记；实时权限检查，已回收返回 410，失权/已删除不泄露正文 |
 | `POST /answers`、`POST /answers/{id}/feedback` | 待实现 | 回答/SSE/反馈 |
 | `POST/GET /conversations`、`GET/DELETE /conversations/{id}` | 待实现 | 会话与消息管理 |
 | `GET /me`、`GET /config`、`POST /auth/dev-token` | 已实现 | 当前身份、公开配置、本地开发登录；dev-token 有环境开关，生产禁止开启 |
@@ -529,7 +536,7 @@ V2 检索在身份认证后共享 12 秒 deadline，embedding 4 秒、rerank 6 �
 | M1：服务骨架与隔离 | 基础已实现：FastAPI/PG/迁移/RLS、KB/ACL、探针、Compose、空库测试与配置门禁 | 实际 OIDC 联调、完整生产凭据隔离、最小权限、trace/结构化日志与 CI；不能据此认定生产认证已完成 |
 | M2：真实入库闭环 | 第一条本地链路已验收：上传→MQ→解析/切块→真实 BGE→PG→授权检索/引用 | 阶段产物恢复、DLQ、真实进程故障/乱序/重启演练、完整格式样本验收；预签名/批量上传另补 |
 | M3：检索质量 | V2 已实现合成评测/runner、中文词法/编号、RRF、rerank、完整块预算与检索诊断 | 经审核业务集、按需 rewrite、父块/相邻块、质量与容量验收 |
-| M4：更新与治理 | 部分提前完成：首版原子发布、ACL 收窄/撤销、逻辑删除与迟到任务防护 | 新版本更新、manifest/CAS、并发合并、影子重建、回滚、GC/孤立对象回收、版本页面与恢复对账 |
+| M4：更新与治理 | V3 已开发单文档版本/CAS 发布/回滚、历史引用、保留期 GC、版本页面；待验证 | V3 迁移/权限/并发/恢复验收；整库 manifest/CAS、影子重建、孤立对象/备份清理、恢复对账 |
 | M5：问答与 Agent | 部分提前完成：引用与 Java local/http 客户端、无状态真实查询桥接 | `/answers`、证据门禁、SSE/会话/反馈；Java 主体/任务/审计/幂等租户迁移、委托与恢复重授权，再开放完整聊天/任务 |
 | M6：文档与运行控制 | 部分基础：DOCX 表格文本、输入上限、单独 CPU 推理、基础审计/页面 | OCR/HTML/复杂版面/审核、解析沙箱、配额/费用/限流、在线与导入隔离、看板/告警、管理台补齐 |
 | M7：生产发布 | 未验收；现有 Compose 仅用于开发/集成 | HA、PITR/恢复、安全/故障/压力演练、灰度回滚/runbook、生产配置；第 9 节及全部 P0/P1 通过 |
@@ -539,7 +546,7 @@ V2 检索在身份认证后共享 12 秒 deadline，embedding 4 秒、rerank 6 �
 
 | 任务 | 状态 | 已交付证据 | 未完成部分 |
 | --- | --- | --- | --- |
-| T01：边界与契约 | 部分完成 | [ADR](docs/rag/adr-001-service-boundary.md)、[实际 OpenAPI JSON](docs/rag/openapi.json)、本文当前 API/错误语义 | 正式身份委托联调、统一边界错误体、trace 契约；产物采用 JSON，不再要求重复维护 YAML |
+| T01：边界与契约 | 部分完成 | [ADR](docs/rag/adr-001-service-boundary.md)、[V3 OpenAPI](docs/rag/openapi.json)、V3 接口说明与导出脚本 | 完整契约集成验证、正式身份委托联调、统一边界错误体、trace 契约 |
 | T02：Python 服务基础 | 部分完成 | [pyproject](rag-service/pyproject.toml)、[lock](rag-service/requirements.lock)、配置/入口/健康检查、request_id 日志 | JSON 结构化日志、端到端 tracing 与独立 CI |
 | T03：Docker 开发环境 | 基础已完成 | [Compose](compose.rag.yaml)：PG、MQ、MinIO、迁移/seed、API/Dispatcher/Worker/embedding；模型健康门禁 | 可选部署 profile、`.env.example`、正式 secrets 注入和镜像 digest/供应链准入 |
 | T04：初始迁移与租户约束 | 已完成本条范围 | [0001](rag-service/migrations/versions/0001_initial.py)、[运行角色初始化](rag-service/docker/init-roles.sql)，空库/隔离测试通过 | 后续新增表/字段用新迁移；生产最小权限收紧归 M1 |
@@ -549,7 +556,7 @@ V2 检索在身份认证后共享 12 秒 deadline，embedding 4 秒、rerank 6 �
 
 ### 11.2 下一批执行顺序
 
-V2 已交付 N01 的评测工程、N02 和 N03 的基础能力；业务质量验收与父块扩展仍未完成。下一步结合逐题评测补 N01 的真实标注与 N04 的按需 rewrite；N05 补强现有入库可靠性，随后完成 N06 生命周期与 N07 问答/完整 Agent。正式 IdP、密钥隔离、解析沙箱、配额和运维门禁贯穿后续迭代，在开放非可信文件或生产访问前必须完成。
+V2 已交付 N01 的评测工程、N02/N03 基础能力；V3 提前完成 N06 的单文档生命周期代码。下一步由其他模型按交接清单验证 V3，再安排迁移部署；开发继续推进 N07 回答/证据门禁、N05 可靠性及 N06 剩余治理能力。N01 真实业务集与 N04 按需 rewrite 依评测推进。正式 IdP、密钥隔离、解析沙箱、配额和运维门禁仍是开放生产访问前的要求。
 
 | 任务 | 实现计划 | 可验收交付 |
 | --- | --- | --- |
@@ -558,7 +565,7 @@ V2 已交付 N01 的评测工程、N02 和 N03 的基础能力；业务质量验
 | N03：rerank 与上下文 | 已实现独立真实 reranker、候选/长度/deadline、回退、完整块去重/token 预算；父块元数据与扩展待补 | 相对 hybrid 的质量/延迟/成本报告，超时和模型故障回归，不把分数当正确概率 |
 | N04：按需 query rewrite | 增加有预算/超时的 LLM Provider 适配；保留原 query，歧义查询结构化改写、编号跳过、非法输出降级；记录脱敏调试信息 | 开关对照和改写退化样本；授权范围不可扩大。多轮改写待 M5 会话授权完成后接入 |
 | N05：入库可靠性补强 | 阶段产物/检查点、DLQ/失败列表、抖动重试、可观察恢复；增加真实 kill Worker、MQ 发布临界点、重复/乱序演练 | 对账 job/outbox/产物，证明无重复可见发布、无任务丢失、旧租约不能提交 |
-| N06：内容更新与回收 | 新版本 API、chunk_set/profile、manifest/CAS、影子重建/回滚、GC/孤立对象保留策略、版本 UI | 更新不中断旧版查询，并发不覆盖，删除/撤权不被迟到任务/回滚/恢复复活 |
+| N06：内容更新与回收 | V3 已开发新版 API、文档 CAS、发布/回滚、历史引用、GC/hold、版本 UI；待验证。整库 manifest、影子重建、孤立对象与备份策略仍待开发 | 按 [V3 测试交接](docs/rag/testing-v3-handoff.md) 验证更新不中断、并发不覆盖、删除/撤权不被复活、回收可恢复；未执行，不标为验收通过 |
 | N07：回答与完整 Agent | `/answers` 证据/引用门禁、SSE/反馈/会话；同步改造 Java 主体、任务/审计/幂等租户边界与委托 | 无证据不编政策，历史引用失权不可再用；通过任务/聊天/恢复隔离后解除远程 RAG 门禁 |
 
 ## 12. 当前目录、后续演进与维护规则
@@ -572,25 +579,31 @@ rag-service/
     main.py / config.py / auth.py / db.py / storage.py
     parsing.py / embedding.py / queue.py / worker.py / dispatcher.py
     bootstrap.py / errors.py
+    lifecycle.py / version_api.py / retention.py / version_gc.py
     static/              # 当前原生 HTML/CSS/JS 管理台
   app/retrieval/         # 词法、模型客户端、异步 SQL、限流、RRF/预算、响应契约
   app/backfill.py        # 不重算向量的词法回填
   evals/                # 合成 JSONL、manifest、四路评测 runner
   migrations/versions/0001_initial.py / 0002_hybrid_retrieval.py
+  migrations/versions/0003_document_lifecycle.py
   docker/init-roles.sql
   docker/minio/Dockerfile
   tests/test_core.py / test_integration.py
-  scripts/run_tests.py / acceptance.py
+  scripts/run_tests.py / acceptance.py / export_openapi.py
 rag-inference/
   server.py / download_model.py
   reranker_server.py / reranker_config.py / download_reranker.py
   requirements.in / requirements.lock / Dockerfile
 compose.rag.yaml
 docs/rag/
-  openapi.json
+  openapi.json            # 已从实际路由生成 V3 契约
   adr-001-service-boundary.md
+  adr-002-hybrid-retrieval.md / adr-003-document-lifecycle.md
   implementation.md
   verification-2026-11-02.md
+  verification-v2-2026-11-02.md
+  verification-v3-2026-11-03.md
+  version-3.md / testing-v3-handoff.md
 ```
 
 后续随模块复杂度拆分，避免仅为目录完整而空建模块；下面为目标结构，非已实现清单：
