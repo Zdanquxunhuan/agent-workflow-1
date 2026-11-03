@@ -1,0 +1,23 @@
+{
+  "result": "passed",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "live_answer_calls": 1,
+  "synthetic_documents": 1,
+  "retrieval_profile": "lexical-v2",
+  "indexing_vectors": "explicit test double; not a BGE or MQ acceptance",
+  "answer": "已发货订单退款需要主管审批。 [C1]",
+  "quotes": [
+    "已发货订单退款需要主管审批。"
+  ],
+  "usage": {
+    "prompt_tokens": 342,
+    "completion_tokens": 41,
+    "source": "provider"
+  },
+  "timings_ms": {
+    "retrieval_ms": 116.77,
+    "generation_ms": 986.36,
+    "total_ms": 1320.32
+  }
+}

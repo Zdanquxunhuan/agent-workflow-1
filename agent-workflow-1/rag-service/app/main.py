@@ -30,6 +30,7 @@ from app.retrieval.profiles import PROFILES
 from app import lifecycle
 from app.version_api import router as version_router, download_version
 from app.retention import router as retention_router
+from app.answers import router as answer_router
 
 @asynccontextmanager
 async def lifespan(app):
@@ -43,6 +44,7 @@ async def lifespan(app):
         conn.execute("SELECT 1 FROM search_admissions LIMIT 1")
         conn.execute("SELECT content_revision FROM documents LIMIT 1")
         conn.execute("SELECT 1 FROM publication_events LIMIT 1")
+        conn.execute("SELECT 1 FROM answer_runs LIMIT 1")
     tokenizer()  # Warm up segmentation outside the request deadline.
     async with create_pool() as search_pool, httpx.AsyncClient(
             limits=httpx.Limits(max_connections=8, max_keepalive_connections=4), follow_redirects=False) as model_http:
@@ -55,10 +57,11 @@ async def lifespan(app):
             pool.cache_clear()
 
 
-app = FastAPI(title="Workflow RAG", version="0.3.0", description="Versioned knowledge lifecycle and authorized retrieval",
+app = FastAPI(title="Workflow RAG", version="0.4.0", description="Grounded answers with current authorization and versioned evidence",
               lifespan=lifespan)
 app.include_router(version_router)
 app.include_router(retention_router)
+app.include_router(answer_router)
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -170,7 +173,8 @@ def ready():
 def public_config():
     return {"dev_login_enabled": settings().environment == "development" and settings().dev_login_enabled,
             "max_upload_bytes": settings().upload_max_bytes, "formats": ["txt", "md", "pdf", "docx"],
-            "retrieval_profiles": list(PROFILES), "default_retrieval_profile": settings().retrieval_profile}
+            "retrieval_profiles": list(PROFILES), "default_retrieval_profile": settings().retrieval_profile,
+            "answers_enabled": settings().answer_enabled}
 
 
 @app.post("/api/v1/auth/dev-token")

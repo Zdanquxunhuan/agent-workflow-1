@@ -1,0 +1,20 @@
+{
+  "result": "blocked",
+  "recorded_from": "single live request tool output; no successful model response",
+  "date": "2026-11-03",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "live_answer_calls": 1,
+  "synthetic_documents": 1,
+  "retrieval_profile": "lexical-v2",
+  "retrieval_hits": 1,
+  "indexing_vectors": "explicit test double; not a BGE or MQ acceptance",
+  "provider_http_status": 402,
+  "observed_api_http_status": 503,
+  "observed_api_error": "ANSWER_PROVIDER_UNAVAILABLE",
+  "subsequent_code_mapping": "ANSWER_PROVIDER_QUOTA (validated locally; no second live call)",
+  "answer_generated": false,
+  "usage": null,
+  "reason": "DeepSeek documents HTTP 402 as Insufficient Balance",
+  "reference": "https://api-docs.deepseek.com/quick_start/error_codes/"
+}

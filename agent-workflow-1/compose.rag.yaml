@@ -79,7 +79,21 @@ services:
       minio: {condition: service_healthy}
   api:
     image: workflow-rag-api:local
-    environment: *rag-environment
+    environment:
+      <<: *rag-environment
+      RAG_ANSWER_ENABLED: ${RAG_ANSWER_ENABLED:-false}
+      RAG_ANSWER_ALLOWED_TENANTS: ${RAG_ANSWER_ALLOWED_TENANTS:-[]}
+      RAG_ANSWER_PROVIDER: ${RAG_ANSWER_PROVIDER:-deepseek}
+      RAG_ANSWER_BASE_URL: ${RAG_ANSWER_BASE_URL:-https://api.deepseek.com}
+      RAG_ANSWER_MODEL: ${RAG_ANSWER_MODEL:-deepseek-flash}
+      RAG_ANSWER_API_KEY: ${DEEPSEEK_API_KEY:-}
+      RAG_ANSWER_DEADLINE_SECONDS: ${RAG_ANSWER_DEADLINE_SECONDS:-40}
+      RAG_ANSWER_MODEL_TIMEOUT: ${RAG_ANSWER_MODEL_TIMEOUT:-25}
+      RAG_ANSWER_MAX_OUTPUT_TOKENS: ${RAG_ANSWER_MAX_OUTPUT_TOKENS:-1200}
+      RAG_ANSWER_PROMPT_MAX_BYTES: ${RAG_ANSWER_PROMPT_MAX_BYTES:-24000}
+      RAG_ANSWER_RESPONSE_MAX_BYTES: ${RAG_ANSWER_RESPONSE_MAX_BYTES:-131072}
+      RAG_ANSWER_REQUESTS_PER_MINUTE: ${RAG_ANSWER_REQUESTS_PER_MINUTE:-30}
+      RAG_ANSWER_TENANT_CONCURRENCY: ${RAG_ANSWER_TENANT_CONCURRENCY:-2}
     ports: ["127.0.0.1:8091:8091"]
     depends_on:
       seed: {condition: service_completed_successfully}

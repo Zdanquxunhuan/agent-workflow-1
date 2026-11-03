@@ -18,9 +18,14 @@
 <div class="section-head"><h3>处理记录</h3><button class="quiet" id="refresh">刷新</button></div><div id="documents" class="empty">选择知识库后查看文档</div></section>
 <section class="card"><h2>检索知识</h2><form id="search"><div class="search-row"><input id="query" placeholder="例如：已发货订单如何申请退款？" maxlength="2000" required><button class="primary" id="search-button">搜索</button></div></form>
 <div class="search-options"><label>检索方式 <select id="profile"></select></label><label><input type="checkbox" id="debug-enabled"> 查看检索诊断（需管理权限）</label></div>
-<p class="muted small">语义、中文关键词与编号联合检索，可选模型重排。当前返回原文证据，尚未生成回答。</p>
+<p class="muted small">语义、中文关键词与编号联合检索，可选模型重排。这里返回原文证据；生成回答请使用下方知识问答。</p>
 <div id="search-status" role="status" class="muted small"></div><div id="results" class="empty">搜索结果将附带文档版本和引用位置</div>
 <details id="debug-panel" hidden><summary>检索诊断：召回、融合与重排</summary><pre id="debug-summary"></pre><div class="table-scroll"><table><thead><tr><th>文档 / 片段</th><th>通道排名</th><th>融合排名</th><th>重排分数</th><th>选入证据</th></tr></thead><tbody id="debug-rows"></tbody></table></div></details></section>
+<section class="card" id="answer-panel"><h2>知识问答</h2>
+<p id="answer-availability" class="muted small">正在读取问答配置…</p>
+<form id="answer-form"><div class="search-row"><input id="answer-query" placeholder="例如：已发货订单退款需要谁审批？" maxlength="2000" required><button id="answer-submit" class="primary" disabled>根据资料回答</button></div></form>
+<p class="muted small">单轮问答，使用上方选择的检索方式。资料不足会拒答，资料冲突会提示；引用可追溯不代表结论一定正确，请核对关键政策。</p>
+<div id="answer-status" role="status"></div><div id="answer-text"></div><p id="answer-meta" class="muted small"></p><div id="answer-citations"></div><div id="answer-feedback"></div></section>
 <section class="card"><h2>访问权限</h2><p class="muted small">为本租户已有成员授予当前知识库权限。开发环境预置 admin、alice、bob。</p>
 <form id="grant"><div class="search-row"><input id="grant-subject" placeholder="成员 ID" required><select id="grant-role"><option value="reader">只读</option><option value="contributor">上传</option><option value="manager">管理</option></select><button>授权</button></div></form>
 <button class="quiet" id="revoke">撤销上面填写的成员权限</button></section>
@@ -40,7 +45,7 @@
 <button id="retention-preview" type="button">预览可回收版本</button><div id="retention-list"></div>
 <button id="retention-submit" type="button" hidden>回收已选版本</button></div>
 </section>
-<footer>Knowledge Studio / Version 3 · 知识版本与发布治理</footer></main>
+<footer>Knowledge Studio / Version 4 · 有证据的知识问答</footer></main>
 <dialog id="citation-dialog"><h2 id="citation-title"></h2><pre id="citation-text"></pre><button id="close-dialog">关闭</button></dialog>
-<script src="/static/app.js"></script><script src="/static/versions.js"></script></body></html>
+<script src="/static/app.js"></script><script src="/static/versions.js"></script><script src="/static/answers.js"></script></body></html>
 

@@ -1,6 +1,7 @@
 from functools import lru_cache
 
-from pydantic import model_validator
+from pydantic import SecretStr, model_validator
+from urllib.parse import urlsplit
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -44,9 +45,40 @@ class Settings(BaseSettings):
     search_tenant_concurrency: int = 2
     version_retention_days: int = 30
     version_keep_latest: int = 3
+    answer_enabled: bool = False
+    answer_allowed_tenants: list[str] = []
+    answer_provider: str = 'deepseek'
+    answer_base_url: str = 'https://api.deepseek.com'
+    answer_model: str = 'deepseek-flash'
+    answer_api_key: SecretStr = SecretStr('')
+    answer_deadline_seconds: float = 40
+    answer_model_timeout: float = 25
+    answer_max_output_tokens: int = 1200
+    answer_prompt_max_bytes: int = 24000
+    answer_response_max_bytes: int = 131072
+    answer_requests_per_minute: int = 30
+    answer_tenant_concurrency: int = 2
 
     @model_validator(mode="after")
     def validate_config(self):
+        if self.answer_provider not in {'deepseek', 'chat_completions'}:
+            raise ValueError('Unsupported answer provider')
+        if not (5 <= self.answer_deadline_seconds <= 120 and 0 < self.answer_model_timeout <= 90
+                and self.answer_model_timeout < self.answer_deadline_seconds
+                and 128 <= self.answer_max_output_tokens <= 4096
+                and 4000 <= self.answer_prompt_max_bytes <= 64000
+                and 4096 <= self.answer_response_max_bytes <= 1048576
+                and 1 <= self.answer_requests_per_minute <= 1000
+                and 1 <= self.answer_tenant_concurrency <= 16):
+            raise ValueError('Invalid answer resource limits')
+        if self.answer_enabled:
+            url = urlsplit(self.answer_base_url)
+            if (url.scheme not in {'http', 'https'} or not url.hostname or url.username or url.password
+                    or url.query or url.fragment or not self.answer_model.strip()
+                    or not self.answer_api_key.get_secret_value() or not self.answer_allowed_tenants):
+                raise ValueError('Answers require a provider URL, model, secret and explicit tenant allowlist')
+            if self.environment == 'production' and url.scheme != 'https':
+                raise ValueError('Production answer provider requires HTTPS')
         if self.version_retention_days < 1 or self.version_keep_latest < 1:
             raise ValueError('Version retention must protect at least one day and one version')
         if self.auth_mode not in {"local", "oidc"}:

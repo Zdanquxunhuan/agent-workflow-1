@@ -76,6 +76,7 @@ async function activateVersion(v,epoch){
     method:'POST',headers:{'Idempotency-Key':crypto.randomUUID()},
     body:JSON.stringify({expected_content_revision:versionPanel.detail.content_revision,reason:reason.trim()})});
   if(currentPanel(epoch)){
+    window.resetAnswer?.();
     searchGeneration++;$('search-button').disabled=false;$('results').replaceChildren();$('debug-panel').hidden=true;
     $('debug-rows').replaceChildren();$('debug-summary').textContent='';$('citation-dialog').close();$('citation-text').textContent='';
     $('search-status').textContent='版本已切换，请重新检索最新证据。';

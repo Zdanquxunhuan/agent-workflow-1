@@ -1,7 +1,7 @@
 const $ = (id) => document.getElementById(id);
 let token = '', kb = null, polling = null, searchGeneration = 0, identityGeneration = 0;
 const profileNames = {'dense-v2':'语义检索', 'lexical-v2':'中文关键词与编号', 'hybrid-v2':'混合检索', 'hybrid-rerank-v2':'混合检索 + 模型重排'};
-function resetSearch(){ window.closeVersionPanel?.(); searchGeneration++; $('results').replaceChildren(); $('search-status').textContent=''; $('debug-panel').hidden=true; $('debug-rows').replaceChildren(); $('debug-summary').textContent=''; $('search-button').disabled=false; $('citation-dialog').close(); $('citation-text').textContent=''; }
+function resetSearch(){ window.resetAnswer?.(); window.closeVersionPanel?.(); searchGeneration++; $('results').replaceChildren(); $('search-status').textContent=''; $('debug-panel').hidden=true; $('debug-rows').replaceChildren(); $('debug-summary').textContent=''; $('search-button').disabled=false; $('citation-dialog').close(); $('citation-text').textContent=''; }
 const states = {QUEUED:'等待处理',PARSING:'解析文档',EMBEDDING:'向量化',INDEXING:'写入索引',SUCCEEDED:'处理完成',FAILED:'处理失败',RETRY_WAIT:'等待重试',CANCELLED:'已取消'};
 function notice(message) { $('notice').textContent = message; $('notice').hidden = !message; }
 async function api(path, options={}) {

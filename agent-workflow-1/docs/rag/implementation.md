@@ -1,10 +1,10 @@
-# RAG V3 实现与本地运行
+# RAG V4 实现与本地运行
 
 本次实现的是 M1/M2 的第一条真实链路：上传 → PostgreSQL 任务/Outbox → RabbitMQ → Worker → 解析/分块 → BGE-M3 → pgvector → 授权检索/引用。完整生产路线仍以 `rag-production-to.md` 为准；本文不代表生产发布验收完成。
 
 V1 历史验收见 [记录](verification-2026-11-02.md)。V2 增加中文词法/编号、RRF、真实 reranker、证据预算、检索诊断、租户限流与评测工具，设计见 [ADR-002](adr-002-hybrid-retrieval.md)，历史结果见 [V2 验证](verification-v2-2026-11-02.md)。
 
-V3 增加单文档版本生命周期，详见 [V3 交付与升级说明](version-3.md)。用户后续授权基础测试，现有与新增合计 53 项通过，详见 [V3 测试记录](verification-v3-2026-11-03.md)；没有升级工作库或部署 V3。`openapi.json` 已从实际路由生成 0.3.0 契约。下文“待验证”指剩余生产/端到端场景，不否定已完成的基础回归。
+V3 增加单文档版本生命周期，详见 [V3 交付与升级说明](version-3.md) 与 [V3 基础测试记录](verification-v3-2026-11-03.md)。V4 增加单轮问答、证据门禁、DeepSeek Provider 和反馈，详见 [V4 说明](version-4.md) 与 [V4 小样本记录](verification-v4-2026-11-03.md)。15 项小样本/核心测试通过；真实 DeepSeek 首次返回 402，用户充值后同一条问题的回答/引用/反馈复验通过。工作库未升级，V4 未部署。OpenAPI 按当前 0.4.0 路由生成。
 
 ## 本次能力
 
@@ -17,10 +17,11 @@ V3 增加单文档版本生命周期，详见 [V3 交付与升级说明](version
 - 检索默认使用 hybrid-rerank-v2：授权集合内 dense-exact、中文词法和编号三路召回，RRF 后使用独立 reranker。保留四种 profile 对照；建有 HNSW，但尚未启用 ANN。
 - 原生 HTML/CSS/JS 管理页面，包含开发登录、KB 管理、上传、进度、搜索、引用查看、成员授权与撤销。没有前端构建依赖；后续复杂交互再迁移 React。
 - Java `KnowledgeSearchClient` 的 local/http 适配与无状态 `/api/v1/knowledge/search` 桥接。
+- V4：单轮非流式回答、结构化结论/原文摘录校验、生成前后全来源权限/修订复核、模型输入/输出/时间预算、租户共享限流、元数据记录和基础反馈。页面使用当前 KB/检索 profile；模型默认关闭，需明确配置密钥和允许发送资料的租户。
 
 ## 启动
 
-在 `pom.xml` 所在目录执行，需要 Docker Desktop Linux containers。下面用于新建开发环境；**已有 V2 数据应先按 [V3 升级步骤](version-3.md#升级与验证交接) 停止旧 API/Worker/dispatcher，再迁移和替换镜像，不允许 V2 Worker 与 V3 混跑。** 开发栈使用约 16 GiB Docker 可用内存中的部分资源；embedding 与 reranker 两个 CPU 进程分别限制 6 GiB，首次需要各下载约 2.3 GB 权重，实际速度取决于网络。
+在 `pom.xml` 所在目录执行，需要 Docker Desktop Linux containers。下面用于新建开发环境；**已有 V2 数据应先按 [V3 升级步骤](version-3.md#升级与验证交接) 停止旧 API/Worker/dispatcher；V4 的 0004 与模型配置见 [V4 升级说明](version-4.md#升级与小样本验证)。** 启用问答需显式添加 `--env-file rag-service/.env`，没有密钥仍可使用检索。开发栈使用约 16 GiB Docker 可用内存中的部分资源；embedding 与 reranker 两个 CPU 进程分别限制 6 GiB，首次需要各下载约 2.3 GB 权重，实际速度取决于网络。
 
 ```powershell
 docker compose -f compose.rag.yaml build
@@ -136,12 +137,12 @@ $env:AGENT_AUTH_LOCAL_SECRET = 'rag-local-development-secret-at-least-32-bytes'
 - 解析/向量化在一个可重试 job 内完成，中断可重新计算；还没有逐阶段产物检查点。失败任务保留 PG 可重试列表，尚未完成独立 MQ DLQ 运维流程。
 - 文档逻辑删除先阻止读取，原件/向量保留。V3 已编写保留期预览、显式排队、单租户 GC 和引用 tombstone；默认不启动回收进程。孤立对象、S3 历史 object versions、备份删除传播仍待实现。
 - 无 OCR、复杂版面质量审核、病毒扫描、解析子进程硬超时；当前只允许可信本地样本，不开放公网文件接入。
-- 已实现 hybrid/rerank 和合成检索评测；仍无 rewrite、父块、LLM 回答/SSE/会话、经审核业务质量集、上传/存储/费用配额和 HA/PITR 演练。检索限流不代表所有配额已完成。
+- 已实现 hybrid/rerank 和 V4 单轮问答，真实 DeepSeek 单条功能烟测通过。仍无 rewrite、父块、SSE/会话、经审核业务质量集、上传/存储/费用配额和 HA/PITR 演练。问答频率/token 上限不等于完整计费配额。
 - 当前 UI 每 4 秒刷新文档任务列表，不提供任务 SSE；KB/文档列表最多 100 项。V3 版本和发布记录有游标分页，版本面板手动刷新；批量上传和回收站页面待补。
 - OIDC 验签接口已实现，但尚未对接实际企业 IdP 和组同步；开发账号只用于本机验证。
 - 生产配置校验只是必要条件，不能替代安全回归、权限撤销在途测试、负载与恢复验收。
 
-下一步由其他模型验证 V3 迁移、权限、并发与回收恢复，再安排部署。后续开发推进回答/证据门禁及生命周期剩余项；rewrite 结合业务失败样本决定，Java 完整 Agent 接入必须与任务租户改造一起交付。
+真实单条问答已验证，后续按需要安排迁移部署和页面检查；不因小样本通过自动扩展测试矩阵。SSE/会话、生命周期剩余项和 Java 完整 Agent 租户改造仍按生产计划推进。
 
 
 ## V2 操作与复现
