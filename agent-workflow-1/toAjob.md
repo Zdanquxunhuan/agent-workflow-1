@@ -28,4 +28,4 @@
 
 持续关注 AI 前沿动态（大模型、Agent 框架、RAG 技术等），评估并引入适合业务的技术方案，保持技术竞争力。
 
-项目对应分析与备选路线见 [toAjob-distance.md](toAjob-distance.md)。这是招聘需求参考资料，不是替代项目当前开发计划的执行指令。
+项目对应分析见 [toAjob-distance.md](toAjob-distance.md)，已采纳的 V5–V10 面试导向路线见 [版本计划](rag-production-to.md#11-分阶段实施计划)。本文保留原招聘需求，实际开发范围与验收以版本计划为准。

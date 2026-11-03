@@ -1,5 +1,7 @@
 # 上线判定标准与简历表述指南
 
+> **路线更新（2026-11-03）：** AI Agent 面试能力建设按 [V5–V10 版本计划](rag-production-to.md#11-分阶段实施计划) 推进，下一版为 [V5 Spring AI 与安全 RAG 集成](docs/agent/version-5.md)。本文保留生产上线与简历表述标准；第 8 节的六周建议针对具备真实环境条件后的生产推进，不是当前版本排期，也不是开始面试的前置条件。历史测试数字不代表最新各版本都已验收。
+
 > 结论先行：**完成 `ds-todolist.md` 不等于可以上生产；它最多把你从“演示原型”推进到“可试点候选”。**  
 > “已上线生产系统”不是代码完成度，而是一个需要真实环境、真实用户、真实流量、运维责任和合规签字的事实陈述。  
 > 关联文档：[ds-todolist.md](ds-todolist.md)、[docs/production-readiness.md](docs/production-readiness.md)

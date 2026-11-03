@@ -17,6 +17,8 @@
 
 ## 运行
 
+后续开发以 AI Agent 面试为目标，路线为 **V5 Spring AI 与安全 RAG 集成 → V6 短期记忆 → V7 长期记忆 → V8 MCP → V9 流式/多模型成本控制 → V10 受控重规划与部署演练**。这些版本尚未实现；范围与验收见 [版本路线](rag-production-to.md#11-分阶段实施计划)、[V5 开发计划](docs/agent/version-5.md)，取舍依据见 [岗位差距分析](toAjob-distance.md)。现有生产门槛继续保留，面试演示与生产上线分别评价。
+
 ### 独立 RAG（Version 4，单轮可信问答）
 
 新增 FastAPI、PostgreSQL/pgvector、RabbitMQ、对象存储和真实 BGE-M3 的文档入库/检索链路，包含中文词法/编号混合检索、RRF、独立 reranker、检索诊断与合成评测工具。运行与当前限制见 [RAG 实现说明](docs/rag/implementation.md)，完整目标见 [生产化计划](rag-production-to.md)。这部分仍在分阶段实现，尚未完成生产发布验收。

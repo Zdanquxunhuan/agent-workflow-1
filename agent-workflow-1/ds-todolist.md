@@ -1,5 +1,7 @@
 # ds-todolist.md — 生产化差距与上线待办
 
+> **路线更新（2026-11-03）：** 当前以 AI Agent 面试为目标，后续版本顺序统一见 [V5–V10 计划](rag-production-to.md#11-分阶段实施计划) 和 [V5 执行范围](docs/agent/version-5.md)。本文保留生产审查快照与验收待办，下面的阶段 A/B/C 和“最值得先做”不再作为当前版本开发顺序；涉及生产开放的安全门槛仍需满足。
+
 > 审查对象：`agent-workflow-1`（Spring Boot 3.5.16 / Java 17）  
 > 审查日期：2026-10-27  
 > 测试基线（初次审查快照）：`mvn -o -q test`，34 tests / 0 failures / 0 errors / 0 skipped（JDK 17.0.12）  
