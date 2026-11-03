@@ -1,6 +1,8 @@
-# Version 5 计划：Spring AI 与 Java Agent 的安全 RAG 闭环
+# Version 5：Spring AI 与 Java Agent 的安全 RAG 闭环
 
-日期：2026-11-03。状态：**待开发，本文是执行计划，不是交付或测试报告。** 总路线见 [版本计划](../../rag-production-to.md)，需求依据见 [岗位差距](../../toAjob-distance.md)。V5 起沿用版本编号管理 Java Agent 与 RAG 的联合迭代。
+日期：2026-11-03。状态：**本地实现与小样本验证完成，未部署，未完成生产验收。** 当前范围见 [交付说明](delivery-v5.md)、[验证记录](verification-v5-2026-11-03.md)、[框架 ADR](adr-001-spring-ai.md)。总路线见 [版本计划](../../rag-production-to.md)，需求依据见 [岗位差距](../../toAjob-distance.md)。
+
+以下保留最初执行计划作为目标基线，未勾选清单不代表全部尚未实现；当前交付和未完成项以上述交付说明与验证记录为准。企业委托、生产部署及完整验收仍未完成，不把有限本地验证改写成全部目标达成。
 
 ## 1. 本版要解决的问题
 

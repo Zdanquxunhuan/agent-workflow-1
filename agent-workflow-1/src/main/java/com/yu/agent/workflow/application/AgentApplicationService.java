@@ -40,6 +40,10 @@ public class AgentApplicationService {
     private final ToolRegistry toolRegistry;
     private final PromptInjectionGuard promptInjectionGuard;
     private final ResultEvaluator resultEvaluator;
+    private KnowledgeSearchClient knowledge;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void knowledge(KnowledgeSearchClient knowledge) { this.knowledge = knowledge; }
+
     private final int maxSteps;
     private final long deadlineSeconds;
 
@@ -69,11 +73,11 @@ public class AgentApplicationService {
         if (userId == null || userId.isBlank()) throw BusinessException.of("INVALID_ARGUMENT", "Authenticated user id is required");
         // Let the repository unique constraint settle concurrent retries. A
         // read-then-insert pre-check would race across instances.
-        AgentTask candidate = new AgentTask(UUID.randomUUID().toString(), userId, role, request, idempotencyKey, Instant.now());
+        AgentTask candidate = new AgentTask(UUID.randomUUID().toString(), userId, role, request, idempotencyKey, Instant.now(), com.yu.agent.workflow.security.TenantIdentity.current(), "tasks");
         AgentTask task = tasks.create(candidate);
         if (task != candidate) {
             log.info("Idempotent replay taskId={} user={} key={}", task.id(), userId, idempotencyKey);
-            return task.view();
+            return authorizedView(task, userId);
         }
         audit(task, traceId, "TASK_CREATED", userId, null, "Task created", Map.of());
         transition(task, TaskStatus.PLANNING, traceId, userId);
@@ -84,6 +88,8 @@ public class AgentApplicationService {
         try {
             promptInjectionGuard.check(request);
             plan = normalizeAndValidatePlan(planner.plan(request));
+            if (knowledge != null && plan.steps().stream().anyMatch(step -> "knowledge.search".equals(step.toolName())))
+                knowledge.prepareTask(new ToolContext(task.userId(), task.role(), task.id(), traceId, task.tenantId()));
             audit(task, traceId, "PLANNING_COMPLETED", userId, null, "Plan generation completed", Map.of(
                     "planner", planner.getClass().getSimpleName(),
                     "stepCount", plan.steps().size(),
@@ -105,7 +111,7 @@ public class AgentApplicationService {
         } else {
             executePlan(task, traceId, userId, role, 1);
         }
-        return task.view();
+        return authorizedView(task, currentReader(task.userId()));
     }
 
     /**
@@ -115,6 +121,7 @@ public class AgentApplicationService {
     @Transactional(transactionManager = "workflowTransactionManager")
     public AgentTaskView approve(String taskId, String approver, UserRole role, String reason, String traceId) {
         AgentTask task = tasks.require(taskId);
+        com.yu.agent.workflow.security.TenantIdentity.require(task.tenantId());
         synchronized (task) {
             if (role != UserRole.SUPERVISOR && role != UserRole.ADMIN) {
                 throw BusinessException.of("FORBIDDEN", "Only a supervisor or admin can approve a task");
@@ -124,7 +131,7 @@ public class AgentApplicationService {
                 throw BusinessException.of("FORBIDDEN", "Requesters cannot approve their own task");
             }
             if (task.status() == TaskStatus.SUCCEEDED || task.status() == TaskStatus.WAITING_EXTERNAL
-                    || task.status() == TaskStatus.UNKNOWN_SIDE_EFFECT) return task.view();
+                    || task.status() == TaskStatus.UNKNOWN_SIDE_EFFECT) return authorizedView(task, currentReader(task.userId()));
             if (task.status() != TaskStatus.WAITING_APPROVAL) {
                 throw BusinessException.of("INVALID_STATE", "Task is not waiting for approval");
             }
@@ -133,18 +140,19 @@ public class AgentApplicationService {
                     "APPROVED", reason, current.requestedAt(), Instant.now()));
             audit(task, traceId, "APPROVAL_GRANTED", approver, null, "Approval granted", Map.of());
             executePlan(task, traceId, approver, role, 1);
-            return task.view();
+            return authorizedView(task, currentReader(task.userId()));
         }
     }
 
     @Transactional(transactionManager = "workflowTransactionManager")
     public AgentTaskView reject(String taskId, String approver, UserRole role, String reason, String traceId) {
         AgentTask task = tasks.require(taskId);
+        com.yu.agent.workflow.security.TenantIdentity.require(task.tenantId());
         synchronized (task) {
             if (role != UserRole.SUPERVISOR && role != UserRole.ADMIN) {
                 throw BusinessException.of("FORBIDDEN", "Only a supervisor or admin can reject a task");
             }
-            if (task.status() == TaskStatus.CANCELLED) return task.view();
+            if (task.status() == TaskStatus.CANCELLED) return authorizedView(task, currentReader(task.userId()));
             if (task.status() != TaskStatus.WAITING_APPROVAL) {
                 throw BusinessException.of("INVALID_STATE", "Task is not waiting for approval");
             }
@@ -154,24 +162,25 @@ public class AgentApplicationService {
             task.resultMessage("Rejected by approver");
             transition(task, TaskStatus.CANCELLED, traceId, approver);
             audit(task, traceId, "APPROVAL_REJECTED", approver, null, "Approval rejected; no side effect executed", Map.of());
-            return task.view();
+            return authorizedView(task, currentReader(task.userId()));
         }
     }
 
     @Transactional(transactionManager = "workflowTransactionManager")
     public AgentTaskView cancel(String taskId, String actor, UserRole role, String traceId) {
         AgentTask task = tasks.require(taskId);
+        com.yu.agent.workflow.security.TenantIdentity.require(task.tenantId());
         if (!task.userId().equals(actor) && role != UserRole.ADMIN)
             throw BusinessException.of("FORBIDDEN", "Only the task owner can cancel it");
         synchronized (task) {
-            if (task.status().terminal()) return task.view();
+            if (task.status().terminal()) return authorizedView(task, currentReader(task.userId()));
             if (task.status() == TaskStatus.WAITING_EXTERNAL || task.status() == TaskStatus.UNKNOWN_SIDE_EFFECT) {
                 throw BusinessException.of("INVALID_STATE", "An accepted external operation cannot be cancelled; reconcile its outcome first");
             }
             transition(task, TaskStatus.CANCELLED, traceId, actor);
             task.resultMessage("Cancelled by user");
             audit(task, traceId, "TASK_CANCELLED", actor, null, "Task cancelled", Map.of());
-            return task.view();
+            return authorizedView(task, currentReader(task.userId()));
         }
     }
 
@@ -184,6 +193,7 @@ public class AgentApplicationService {
             throw BusinessException.of("FORBIDDEN", "Only a supervisor or admin can resume a recovered task");
         }
         AgentTask task = tasks.require(taskId);
+        com.yu.agent.workflow.security.TenantIdentity.require(task.tenantId());
         synchronized (task) {
             if (task.status() != TaskStatus.RECOVERY_REQUIRED) {
                 throw BusinessException.of("INVALID_STATE", "Task is not waiting for recovery");
@@ -209,21 +219,32 @@ public class AgentApplicationService {
             } else {
                 executePlan(task, traceId, actor, role, nextSequence);
             }
-            return task.view();
+            return authorizedView(task, currentReader(task.userId()));
         }
     }
 
     public AgentTaskView get(String taskId, String actor, UserRole role) {
         AgentTask task = tasks.require(taskId);
+        com.yu.agent.workflow.security.TenantIdentity.require(task.tenantId());
         if (!task.userId().equals(actor) && role != UserRole.ADMIN && role != UserRole.SUPERVISOR) {
             throw BusinessException.of("FORBIDDEN", "Task is not visible to this user");
         }
-        return task.view();
+        return authorizedView(task, currentReader(task.userId()));
     }
 
     public List<AuditEvent> events(String taskId, String actor, UserRole role) {
         get(taskId, actor, role);
         return events.findByTask(taskId);
+    }
+
+    private String currentReader(String fallback) {
+        var authentication = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        return authentication == null ? fallback : authentication.getName();
+    }
+
+    private AgentTaskView authorizedView(AgentTask task, String reader) {
+        if (knowledge != null) knowledge.revalidateTask(new ToolContext(reader, task.role(), task.id(), "read", task.tenantId()));
+        return task.view();
     }
 
     private void executePlan(AgentTask task, String traceId, String actor, UserRole executionRole, int startSequence) {
@@ -254,8 +275,8 @@ public class AgentApplicationService {
             Instant started = Instant.now();
             ToolResult result;
             try {
-                result = toolRegistry.execute(step.toolName(), step.arguments(), new ToolContext(actor,
-                        executionRole, task.id(), traceId));
+                result = toolRegistry.execute(step.toolName(), step.arguments(), new ToolContext("knowledge.search".equals(step.toolName()) ? task.userId() : actor,
+                        "knowledge.search".equals(step.toolName()) ? task.role() : executionRole, task.id(), traceId, task.tenantId()));
             } catch (BusinessException ex) {
                 task.addStep(new AgentStep(stepId, step.sequence(), step.toolName(), step.arguments(), "REJECTED",
                         ex.code(), ex.getMessage(), started, Instant.now()));

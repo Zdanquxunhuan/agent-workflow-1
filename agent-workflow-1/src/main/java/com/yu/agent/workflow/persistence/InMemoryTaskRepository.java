@@ -22,7 +22,11 @@ public class InMemoryTaskRepository implements TaskRepository {
         String key = idempotencyKey(task);
         if (key != null) {
             String existingId = idempotency.get(key);
-            if (existingId != null) return tasks.get(existingId);
+            if (existingId != null) {
+                AgentTask existing = tasks.get(existingId);
+                if (!existing.request().equals(task.request())) throw BusinessException.of("IDEMPOTENCY_CONFLICT", "Idempotency key is bound to a different request");
+                return existing;
+            }
         }
         tasks.put(task.id(), task);
         if (key != null) idempotency.put(key, task.id());
@@ -39,10 +43,14 @@ public class InMemoryTaskRepository implements TaskRepository {
 
     private String idempotencyKey(AgentTask task) {
         return task.idempotencyKey() == null || task.idempotencyKey().isBlank()
-                ? null : idempotencyKey(task.userId(), task.idempotencyKey());
+                ? null : scopedKey(task.tenantId(), task.userId(), task.entrypoint(), task.idempotencyKey());
+    }
+
+    private String scopedKey(String tenant, String userId, String entrypoint, String key) {
+        return tenant.length() + ":" + tenant + userId.length() + ":" + userId + entrypoint.length() + ":" + entrypoint + key;
     }
 
     private String idempotencyKey(String userId, String key) {
-        return userId + "::" + key;
+        return scopedKey("legacy", userId, "tasks", key);
     }
 }

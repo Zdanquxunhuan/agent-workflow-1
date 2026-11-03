@@ -1,10 +1,10 @@
 # 现有项目与 toAjob 的差距分析
 
-分析及更新日期：2026-11-03。岗位依据：[toAjob](toAjob.md)。项目依据：当前工作区 Java 源码、RAG V1–V4 实现、架构记录与已有验证报告。
+分析及更新日期：2026-11-03。岗位依据：[toAjob](toAjob.md)。项目依据：当前工作区 Java 源码、RAG V1–V4 与 Java V5 实现、架构记录与已有验证报告。
 
-**结论：方向没有走偏，已有业务 Agent 与 RAG 工程基础；能力分布偏重业务执行可靠性和知识库治理，距离岗位强调的“Java AI 框架 + 会话记忆 + 多模型编排 + 交互优化”仍有明显缺口。** V4 可信问答已实现并完成小样本验证，但仍不能覆盖这份招聘需求；下一版优先补 Java 框架与安全 RAG 集成。
+**结论：方向没有走偏，已有业务 Agent 与 RAG 工程基础；能力分布偏重业务执行可靠性和知识库治理，距离岗位强调的“Java AI 框架 + 会话记忆 + 多模型编排 + 交互优化”仍有明显缺口。** V4 可信问答已实现并完成小样本验证，但仍不能覆盖这份招聘需求；V5 已补框架适配与安全 RAG 本地闭环，下一版优先短期记忆。
 
-用户已明确以 AI Agent 面试为最终目标，本文原候选路线现已采纳为 [后续版本计划](rag-production-to.md) 的 V5–V10，并细化了 [V5 执行计划](docs/agent/version-5.md)。本次只更新规划与状态，不开发功能或运行额外模型测试；既有架构边界和 V4 历史交付范围保留。执行顺序以版本计划为准，本文解释岗位差距与取舍。
+用户已明确以 AI Agent 面试为最终目标，本文原候选路线现已采纳为 [后续版本计划](rag-production-to.md) 的 V5–V10，并细化了 [V5 执行计划](docs/agent/version-5.md)。V5 已按该路线开发，18 项定向本地测试、1 项隔离迁移及 1 条真实合成联调通过；见 [交付说明](docs/agent/delivery-v5.md)、[验证记录](docs/agent/verification-v5-2026-11-03.md)。既有架构边界和 V4 历史交付范围保留。执行顺序以版本计划为准，本文解释岗位差距与取舍。
 
 ## 1. 评估口径
 
@@ -23,11 +23,11 @@
 
 | 岗位要求 | 当前实现证据 | 主要差距 | 判断 |
 | --- | --- | --- | --- |
-| J01：Java Agent 需求、设计、规划、执行、上线 | Java 状态机、DeepSeek JSON 规划、最多 4 轮只读工具调用、审批/幂等/恢复；本地独立业务系统接入 | 一次规划后按既定步骤执行为主；缺跨请求持续对话、基于结果的受控重规划、完整任务租户化与生产运行证据 | 基础较强，离完整生产 Agent 仍有中等差距 |
+| J01：Java Agent 需求、设计、规划、执行、上线 | Java 状态机、DeepSeek JSON 规划、最多 4 轮只读工具调用、审批/幂等/恢复；本地独立业务系统接入 | 一次规划后按既定步骤执行为主；缺跨请求持续对话、基于结果的受控重规划、企业委托与生产运行证据 | 基础较强，离完整生产 Agent 仍有中等差距 |
 | J02：向量库选型、搭建、维护与高效检索 | PG/pgvector、1024 维 BGE-M3、混合检索/RRF/rerank、ACL/RLS、版本与 GC；V4 单轮引用问答 | HNSW 建索引但当前采用精确检索；规模下 ANN 取舍、维护/容量/恢复经验不足；整库重建与业务回答质量验收未完成 | 六项中较接近，但“搭起来”不等于大规模运维成熟 |
 | J03：短期/长期记忆与上下文管理 | 单请求内 messages、任务局部上下文裁剪、任务/聊天审计记录 | 缺 conversation 身份边界、跨请求记忆、摘要/token 窗口、长期记忆写入/召回/纠错/遗忘策略 | 最大功能缺口之一 |
-| J04：Prompt、多模型、工具链、Java AI 框架 | Java Prompt、直接 HTTP 模型客户端、真实 Function Calling、业务工具/RAG HTTP 适配 | pom 未引入 Spring AI/LangChain4j；无 MCP 接入；无面向任务的多 LLM 路由/用量治理；Prompt 版本化不足 | Function Calling 已有，框架与模型治理缺口较明显 |
-| J05：延迟、流式、异步、Token、幻觉、检索优化 | MQ 异步入库、业务 Outbox、检索 deadline/限流/降级、RRF/rerank；V4 回答证据门禁、Provider usage 与小型评测 | Java 联合回答尚无等效证据门禁；缺流式、统一用量账本与费用预算；Agent 主执行未形成完整异步运行平台 | RAG 生成侧已有基础，Java 交互与成本治理仍有差距 |
+| J04：Prompt、多模型、工具链、Java AI 框架 | Java Prompt、直接 HTTP 模型客户端、真实 Function Calling、业务工具/RAG HTTP 适配 | 已接入 Spring AI 1.1.2、Prompt/schema 版本和 provider usage；仍缺 MCP、多 LLM 路由与完整费用治理 | Function Calling 已有，框架已有有限实践，模型治理仍待补 |
+| J05：延迟、流式、异步、Token、幻觉、检索优化 | MQ 异步入库、业务 Outbox、检索 deadline/限流/降级、RRF/rerank；V4 回答证据门禁、Provider usage 与小型评测 | Java 已有来源/摘录/修订门禁，语义质量仍需评估；缺流式、统一用量账本与费用预算；Agent 主执行未形成完整异步运行平台 | RAG 生成侧已有基础，Java 交互与成本治理仍有差距 |
 | J06：技术跟踪、选型与评估 | ADR、固定模型 revision、V2 四路检索对照及失败结果记录 | 缺 Java AI 框架/模型选择的实际对照与持续决策记录；现有合成检索集不能代表真实业务质量 | 有方法基础，需要补少量有业务目的的评估 |
 
 ## 3. 容易高估或低估的现有能力
@@ -57,13 +57,13 @@
 
 同样，企业知识库保存政策文档，长期记忆保存“某个用户/任务在什么条件下确认过什么信息”，两者的来源、有效期和访问范围不同。长期记忆不能简单把所有聊天塞进现有 KB。聊天历史与提供给模型的记忆上下文也应分开；这一概念区分与 [LangChain4j Chat Memory 文档](https://docs.langchain4j.dev/tutorials/chat-memory/) 一致。
 
-### 3.4 Java 框架经验确实缺，Spring Boot 本身不能代替
+### 3.4 Java 框架已有有限实践，仍需更多场景积累
 
-当前 [pom.xml](pom.xml) 有 Spring Boot、Web、JDBC、安全等依赖，没有 Spring AI 或 LangChain4j。模型网关主要由 `RestClient` 手写，说明已有协议与控制边界经验，但不能称为已熟练使用上述 AI 框架。
+当前 [pom.xml](pom.xml) 已锁定 Spring AI 1.1.2，通过既有 ToolCallingGateway 适配；真实 SDK 协议测试及一条真实模型联合回答通过，旧 RestClient 网关保留。可以讲清框架边界，但单次集成不能等同熟练掌握框架全部能力。
 
-若对齐此岗位，我倾向**先选一个框架接通已有 Java 模型/只读工具链，优先评估 Spring AI**：这是基于当前 Spring Boot 项目的集成成本判断，不是两个框架的性能排名。Spring AI 官方提供工具调用、聊天记忆和 MCP 集成能力，可覆盖多个岗位要求。[Tool Calling](https://docs.spring.io/spring-ai/reference/api/tools.html)、[Chat Memory](https://docs.spring.io/spring-ai/reference/api/chat-memory.html)、[MCP](https://docs.spring.io/spring-ai/reference/api/mcp/mcp-overview.html)。
+V5 已选择 **Spring AI 接通已有 Java 模型/只读工具链**：这是基于当前 Spring Boot 项目的集成成本判断，不是两个框架的性能排名。Spring AI 官方提供工具调用、聊天记忆和 MCP 集成能力，可覆盖多个岗位要求。[Tool Calling](https://docs.spring.io/spring-ai/reference/api/tools.html)、[Chat Memory](https://docs.spring.io/spring-ai/reference/api/chat-memory.html)、[MCP](https://docs.spring.io/spring-ai/reference/api/mcp/mcp-overview.html)。
 
-接入前仍需核对所选发布版与项目 Spring Boot/Java 版本的兼容关系，不因文档展示新版本就直接升级主项目。Spring AI 与 LangChain4j 不必同时引入；也不要把 LangChain4j 与现有 ADR 提及的 LangGraph4j 混为同一个框架。
+已在 Java 17 / Spring Boot 3.5.16 下编译验证所选版本，后续升级仍须重新核对兼容关系。Spring AI 与 LangChain4j 不必同时引入；也不要把 LangChain4j 与现有 ADR 提及的 LangGraph4j 混为同一个框架。
 
 ### 3.5 多个模型进程，不等于多 LLM 编排已经完成
 
@@ -73,9 +73,9 @@
 
 ### 3.6 生产 RAG 是优势，但继续只加 RAG 管理功能会失衡
 
-已有异步入库、混合检索、权限、版本、回收和 V4 单轮引用问答，比纯问答演示更有工程深度。当前 Python RAG 已负责独立知识问答生成；Java 虽能生成工具聊天答复，远程 RAG 尚未打通完整 task/chat 链路，Java 联合回答仍需自己的最终证据门禁。
+已有异步入库、混合检索、权限、版本、回收和 V4 单轮引用问答，比纯问答演示更有工程深度。当前 Python RAG 已负责独立知识问答生成；V5 Java 已增加 task/chat 远程证据链路和最终门禁，默认关闭，须配置 tenant 允许列表与授权；生产部署尚未完成。
 
-当前 [HttpRagKnowledgeSearchClient](src/main/java/com/yu/agent/workflow/application/HttpRagKnowledgeSearchClient.java) 用 `RAG_TASK_TENANCY_REQUIRED` 阻止未租户化任务承载远程知识证据。这个限制有明确理由：任务、聊天审计、幂等回放、后台恢复需要一起建立 tenant 边界与可信委托。为了演示效果直接解除限制，会绕过现有安全设计。
+当前 [HttpRagKnowledgeSearchClient](src/main/java/com/yu/agent/workflow/application/HttpRagKnowledgeSearchClient.java) 仅在显式启用任务 RAG、可信租户和凭据齐备时开放。任务/回放边界与本地持久委托已实现；企业 token exchange 未实现，旧业务系统固定单租户，不能称全链路多租户生产化。
 
 ## 4. 与现有开发方向偏离大不大
 
@@ -97,21 +97,21 @@ FastAPI RAG 可以保留。Java 继续掌握任务规划、工具选择、审批
 
 ## 5. 已采纳的后续版本安排
 
-原 A–F 是岗位对齐讨论编号，现映射为下列版本；详细范围与验收统一维护在 [主计划第 11 节](rag-production-to.md#11-分阶段实施计划)。V5–V10 均未实现，不承诺缺少模型、业务与部署条件时的日历工期。
+原 A–F 是岗位对齐讨论编号，现映射为下列版本；详细范围与验收统一维护在 [主计划第 11 节](rag-production-to.md#11-分阶段实施计划)。V5 本地实现与有限验证已完成，V6–V10 尚未实现，不承诺缺少模型、业务与部署条件时的日历工期。
 
 | 原阶段 → 版本 | 交付重点 | 可展示的完成标准 |
 | --- | --- | --- |
 | A → V4，已有小样本证据 | 单轮可信问答 | 有引用、无证据拒答、失权阻断、故障区分；完整业务质量另验收 |
-| B → **V5，下一版** | Spring AI 网关适配、租户/委托、Java 工具与 RAG 联合回答 | 真实 Java Agent 链路可运行，引用可追踪，跨主体/租户及回放/恢复不泄露；拆 V5A/B/C 三项交付 |
+| B → **V5，本地交付** | Spring AI 网关适配、租户/委托、Java 工具与 RAG 联合回答 | 真实 Java Agent 链路可运行，引用可追踪，跨主体/租户及回放/恢复不泄露；拆 V5A/B/C 三项交付 |
 | C → V6 | 短期记忆、摘要/token 预算、会话授权 | “那运费呢”能延续指代；不串会话；历史证据重授权、工具消息成对保存/裁剪 |
 | D → V7 | 确认的偏好与任务摘要、纠错/过期/遗忘 | 跨会话调用授权记忆，删除后不再召回；实时业务事实仍从工具取得 |
 | E → V8 | 一个真实只读 MCP 服务 | 发现、授权、执行与审计闭环；未允许工具不可调用 |
 | E → V9 | 流式/取消、默认与备用模型、用量账本/总预算 | 量化首个有效输出与完成时延，解释路由与实际/未知 usage，模型重试不重做副作用 |
 | F → V10 | 缺参澄清、只读受控重规划、部署演练与面试材料 | 有限纠错、可追踪计划修订、失败停止和恢复证据，串起完整售后演示 |
 
-V4 已有基础 Provider usage/耗时，V5 将它延伸到 Java 工具循环，V9 再补费用/路由/交互策略。估算 token 与供应商返回用量要分开，不把估算记作实际账单。
+V4 已有基础 Provider usage/耗时，V5 已将它延伸到 Java 工具循环，V9 再补费用/路由/交互策略。估算 token 与供应商返回用量要分开，不把估算记作实际账单。
 
-V5A 框架适配可先用已有业务只读工具完成；**完整 RAG task/chat、持久会话和记忆上线必须依赖 tenant/主体隔离与可信委托到位**，不能先把未隔离的聊天记录写进长期记忆再补权限。
+V5A 框架适配已有只读工具验证；**完整 RAG task/chat、持久会话和记忆上线必须依赖 tenant/主体隔离与可信委托到位**，不能先把未隔离的聊天记录写进长期记忆再补权限。
 
 V4 的独立问答继续在 Python 生成；V5 Java Agent 用 `/search` 取证据，由 Java 模型链路联合业务工具回答并执行最终门禁。每条请求只指定一个主要生成流程，两侧共用证据契约与授权规则，避免同一回答重复生成。
 
@@ -148,7 +148,7 @@ Function Calling 是模型提出工具请求的机制，MCP 是接入外部工�
 
 ## 7. 对齐优先级与范围控制
 
-若只选择下一步最影响岗位覆盖的三项：**V5 Java AI 框架与安全 RAG 集成、V6 短期记忆、V7 长期记忆**。V4 可信问答已有基础，MCP、流式与模型成本随后按小模块补齐。当前版本与回收能力可以作为工程亮点，不需要再连续扩展多个治理版本才开始记忆开发，也不必等 V10 才开始面试。
+若只选择下一步最影响岗位覆盖的三项：**在 V5 本地闭环基础上完成 V6 短期记忆、V7 长期记忆，再接 V8 MCP**。V4 可信问答已有基础，MCP、流式与模型成本随后按小模块补齐。当前版本与回收能力可以作为工程亮点，不需要再连续扩展多个治理版本才开始记忆开发，也不必等 V10 才开始面试。
 
 这不是降低生产要求。权限、凭据、错误隔离和真实业务接入仍按现有计划推进；区别在于暂不优先增加整库影子重建、多向量、GraphRAG、通用插件市场或复杂多 Agent 协作。它们不是截图明确要求，也不直接弥补当前最大缺口。
 
@@ -171,7 +171,7 @@ Function Calling 是模型提出工具请求的机制，MCP 是接入外部工�
 
 | 证据 | 可支持的说明 |
 | --- | --- |
-| [pom.xml](pom.xml) | Java/Spring Boot 技术栈；目前未引入 Spring AI/LangChain4j |
+| [pom.xml](pom.xml) | Java/Spring Boot 技术栈；已锁定 Spring AI 1.1.2，未引入第二套 Java AI 框架 |
 | [ToolRegistry](src/main/java/com/yu/agent/workflow/tools/ToolRegistry.java)、[业务接入说明](docs/business-integration.md) | 工具执行控制及本地独立业务系统，不等于生产支付接入 |
 | [ContextBuilder](src/main/java/com/yu/agent/workflow/application/ContextBuilder.java)、[AgentChatController](src/main/java/com/yu/agent/workflow/api/AgentChatController.java) | 任务局部上下文与当前聊天入口边界 |
 | [V2 检索报告](docs/rag/verification-v2-2026-11-02.md) | 真实模型的小型合成数据对照，有局限和失败记录 |
@@ -181,4 +181,4 @@ Function Calling 是模型提出工具请求的机制，MCP 是接入外部工�
 
 现在可以如实介绍“实现了 Java 受控业务 Agent，以及独立的多租户 RAG 检索、文档生命周期和单轮引用问答服务，完成了有限范围验证”。不能提前写成“完整长期记忆平台”“熟练落地 Spring AI/MCP”“大规模 ANN 优化”“全链路多租户生产上线”或“53 项测试证明问答正确”。
 
-**岗位对齐路线已采纳为后续计划；下一版按 V5A 框架、V5B 隔离/委托、V5C 联合回答实施。规划采纳不等于功能完成，当前能力仍以代码和已执行验证记录为准。**
+**V5 已形成有代码与小样本证据的本地闭环，下一版进入 V6 短期记忆。企业委托、工作库升级和生产运行证据继续保留为缺口，当前能力以交付说明与已执行验证为准。**

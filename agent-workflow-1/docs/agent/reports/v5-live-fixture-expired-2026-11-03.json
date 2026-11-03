@@ -1,0 +1,12 @@
+[ {
+  "usageSource" : "provider",
+  "outputTokens" : 73,
+  "model" : "deepseek-flash",
+  "inputTokens" : 519,
+  "promptVersion" : "agent-readonly-v5",
+  "gateway" : "spring-ai",
+  "elapsedMs" : 1699,
+  "toolSchemaVersion" : "readonly-v1",
+  "toolNames" : [ "order_query", "knowledge_search" ],
+  "content" : ""
+} ]

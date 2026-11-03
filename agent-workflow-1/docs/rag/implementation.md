@@ -129,7 +129,7 @@ $env:AGENT_AUTH_LOCAL_SECRET = 'rag-local-development-secret-at-least-32-bytes'
 
 桥接当前查询该用户可访问的最多 5 个 KB；超过上限明确报错，应调用 RAG `/search` 指定 KB。生产必须使用正式 OIDC/委托配置与 HTTPS，开发 token 不可用。
 
-**现有 Java 任务/聊天审计表未按租户隔离。** 为避免证据通过任务读取、幂等回放或聊天审计泄露，HTTP RAG 工具暂时只允许上述无状态端点调用；旧 `/tasks`、`/agent/chat` 和恢复流程会返回 `RAG_TASK_TENANCY_REQUIRED`。后续 M5 必须一起改造主体传递、任务/审计/幂等键租户范围、持久授权委托以及恢复时重新授权，再解除此门禁。无状态端点不能冒充“整个 Agent 已多租户生产化”。
+**V5 已实现 Java 任务/聊天租户隔离与受控知识集成。** 默认仍关闭任务 RAG；显式 RAG_TASK_ENABLED、可信 tenant、出域允许列表及授权凭据齐备后开放。持久委托支持本地签名恢复，企业 token exchange 未实现时关闭后台路径；业务适配固定单租户。引用响应新增 content_revision，Java 在返回、回放与恢复时复核权限和修订。见 [V5 交付说明](../agent/delivery-v5.md)；不代表整个 Agent 多租户生产化。
 
 ## 当前限制与下一批工作
 
@@ -142,7 +142,7 @@ $env:AGENT_AUTH_LOCAL_SECRET = 'rag-local-development-secret-at-least-32-bytes'
 - OIDC 验签接口已实现，但尚未对接实际企业 IdP 和组同步；开发账号只用于本机验证。
 - 生产配置校验只是必要条件，不能替代安全回归、权限撤销在途测试、负载与恢复验收。
 
-真实单条问答已验证，后续按需要安排迁移部署和页面检查；不因小样本通过自动扩展测试矩阵。SSE/会话、生命周期剩余项和 Java 完整 Agent 租户改造仍按生产计划推进。
+真实单条问答已验证，后续按需要安排迁移部署和页面检查；不因小样本通过自动扩展测试矩阵。SSE/会话、生命周期剩余项及 Java 企业委托/生产验收仍按计划推进。
 
 
 ## V2 操作与复现

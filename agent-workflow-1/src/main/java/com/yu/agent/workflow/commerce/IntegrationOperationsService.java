@@ -19,6 +19,8 @@ import java.util.UUID;
 @Service
 @ConditionalOnExpression("'${agent.workflow.persistence:memory}' == 'jdbc' and '${agent.commerce.dispatcher.enabled:true}' == 'true'")
 public class IntegrationOperationsService {
+    @org.springframework.beans.factory.annotation.Value("${agent.commerce.tenant:legacy}")
+    private String businessTenant = "legacy";
     private final JdbcTemplate jdbc;
     private final JdbcCommerceOutbox outbox;
     private final CommerceCommandDispatcher dispatcher;
@@ -61,6 +63,7 @@ public class IntegrationOperationsService {
         Map<String,Object> review = review(reviewId);
         if (!"OPEN".equals(review.get("status"))) throw BusinessException.of("INVALID_STATE", "Review is already resolved");
         String commandId = review.get("command_id").toString();
+        command(commandId, actor, role);
         String owner = "manual-" + UUID.randomUUID();
         CommerceCommand command = outbox.claimForReview(commandId, owner, Duration.ofSeconds(30));
         outbox.event(commandId, actor, "MANUAL_RECHECK", reason);
@@ -73,6 +76,7 @@ public class IntegrationOperationsService {
         requireOperator(role);
         Map<String,Object> review = review(reviewId);
         String commandId = review.get("command_id").toString();
+        command(commandId, actor, role);
         String status = jdbc.queryForObject("select status from integration_commands where id=? for update", String.class, commandId);
         if (!"FAILED".equals(status)) throw BusinessException.of("INVALID_STATE", "Only confirmed FAILED commands can be acknowledged; uncertain outcomes require provider evidence");
         int changed = jdbc.update("update integration_reviews set status='RESOLVED',resolution=?,resolved_by=?,resolved_at=? where id=? and status='OPEN'",
@@ -87,6 +91,7 @@ public class IntegrationOperationsService {
         return rows.get(0);
     }
     private void requireOperator(UserRole role) {
+        com.yu.agent.workflow.security.TenantIdentity.requireBusinessTenant(com.yu.agent.workflow.security.TenantIdentity.current(), businessTenant);
         if (role != UserRole.SUPERVISOR && role != UserRole.ADMIN) throw BusinessException.of("FORBIDDEN", "Supervisor or admin required for integration operations");
     }
 }

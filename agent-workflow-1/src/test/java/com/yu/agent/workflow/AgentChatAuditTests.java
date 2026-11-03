@@ -68,12 +68,17 @@ class AgentChatAuditTests {
                         .with(user("chat-idempotency-user", "CUSTOMER_SERVICE"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .header("Idempotency-Key", "chat-audit-key")
-                        .content("{\"message\":\"查询订单 ORD-1002\"}"))
+                        .content("{\"message\":\"查询订单 ORD-1001\"}"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         String secondTaskId = com.jayway.jsonpath.JsonPath.read(second, "$.data.taskId");
 
         org.assertj.core.api.Assertions.assertThat(secondTaskId).isEqualTo(firstTaskId);
+        mvc.perform(post("/api/v1/agent/chat")
+                        .with(user("chat-idempotency-user", "CUSTOMER_SERVICE"))
+                        .contentType(MediaType.APPLICATION_JSON).header("Idempotency-Key", "chat-audit-key")
+                        .content("{\"message\":\"查询订单 ORD-1002\"}"))
+                .andExpect(status().isConflict());
     }
 
     private static RequestPostProcessor user(String subject, String role) {

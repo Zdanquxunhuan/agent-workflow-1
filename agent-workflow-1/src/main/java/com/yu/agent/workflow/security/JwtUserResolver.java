@@ -24,12 +24,18 @@ public class JwtUserResolver {
             .map(Enum::name).collect(Collectors.toUnmodifiableSet());
 
     private final String rolesClaim;
+    @Value("${agent.auth.mode:local}")
+    private String authMode = "local";
 
     public JwtUserResolver(@Value("${agent.auth.roles-claim:roles}") String rolesClaim) {
         this.rolesClaim = rolesClaim;
     }
 
     public AuthenticatedUser resolve(Jwt jwt) {
+        String tenant = jwt.getClaimAsString("tenant_id");
+        if (tenant != null) TenantIdentity.validate(tenant);
+        else if (!"local".equals(authMode))
+            throw BusinessException.of("FORBIDDEN", "Tenant claim is required outside local development");
         String subject = jwt.getSubject();
         if (subject == null || subject.isBlank()) {
             throw BusinessException.of("UNAUTHORIZED", "Token has no subject");
@@ -40,7 +46,7 @@ public class JwtUserResolver {
                 .findFirst()
                 .orElseThrow(() -> BusinessException.of("FORBIDDEN",
                         "Token has no role recognized by this service"));
-        return new AuthenticatedUser(subject, effective, Set.copyOf(roles));
+        return new AuthenticatedUser(subject, effective, Set.copyOf(roles), tenant == null ? "legacy" : tenant);
     }
 
     public Set<String> roles(Jwt jwt) {

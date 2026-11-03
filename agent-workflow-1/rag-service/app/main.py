@@ -429,7 +429,7 @@ def citation(chunk_id: UUID, user: User):
                 'version_number': version['version_number'], 'is_current': doc['active_version_id'] == version['id'],
                 'status': 'current' if doc['active_version_id'] == version['id'] else 'historical',
                 'title': version['filename'], 'text': row['content'], 'page': row['page'], 'section': row['section'],
-                'content_hash': row['content_hash']}
+                'content_hash': row['content_hash'], 'content_revision': doc['content_revision']}
 
 
 @app.get('/api/v1/documents/{doc_id}/original')

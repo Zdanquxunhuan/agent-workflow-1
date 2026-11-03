@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yu.agent.workflow.api.BusinessException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
@@ -23,6 +24,7 @@ import java.util.Map;
 
 @Component
 @ConditionalOnProperty(name = "agent.deepseek.enabled", havingValue = "true")
+@ConditionalOnExpression("'${agent.deepseek.gateway:legacy}' == 'legacy'")
 public class DeepSeekToolCallingGateway implements ToolCallingGateway {
     private final RestClient client;
     private final ObjectMapper objectMapper;

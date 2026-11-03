@@ -6,6 +6,8 @@ import java.util.List;
 
 public final class AgentTask {
     private final String id;
+    private final String tenantId;
+    private final String entrypoint;
     private final String userId;
     private final UserRole role;
     private final String request;
@@ -20,6 +22,13 @@ public final class AgentTask {
     private int sideEffectCount;
 
     public AgentTask(String id, String userId, UserRole role, String request, String idempotencyKey, Instant createdAt) {
+        this(id, userId, role, request, idempotencyKey, createdAt, "legacy", "tasks");
+    }
+
+    public AgentTask(String id, String userId, UserRole role, String request, String idempotencyKey,
+                     Instant createdAt, String tenantId, String entrypoint) {
+        this.tenantId = com.yu.agent.workflow.security.TenantIdentity.validate(tenantId);
+        this.entrypoint = entrypoint;
         this.id = id;
         this.userId = userId;
         this.role = role;
@@ -31,7 +40,7 @@ public final class AgentTask {
     }
 
     public static AgentTask restore(AgentTaskView view) {
-        AgentTask task = new AgentTask(view.id(), view.userId(), view.role(), view.request(), view.idempotencyKey(), view.createdAt());
+        AgentTask task = new AgentTask(view.id(), view.userId(), view.role(), view.request(), view.idempotencyKey(), view.createdAt(), view.tenantId(), view.entrypoint());
         task.updatedAt = view.updatedAt();
         task.status = view.status();
         task.plan = view.plan();
@@ -55,10 +64,12 @@ public final class AgentTask {
 
     public synchronized AgentTaskView view() {
         return new AgentTaskView(id, userId, role, request, idempotencyKey, createdAt, updatedAt, status,
-                plan, List.copyOf(steps), approval, resultMessage, sideEffectCount);
+                plan, List.copyOf(steps), approval, resultMessage, sideEffectCount, tenantId, entrypoint);
     }
 
     public String id() { return id; }
+    public String tenantId() { return tenantId; }
+    public String entrypoint() { return entrypoint; }
     public String userId() { return userId; }
     public UserRole role() { return role; }
     public String request() { return request; }

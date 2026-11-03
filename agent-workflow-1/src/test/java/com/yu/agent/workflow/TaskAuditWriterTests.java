@@ -29,8 +29,10 @@ class TaskAuditWriterTests {
         writer.write(task, event);
 
         assertThat(tasks.require(task.id()).view().id()).isEqualTo(task.id());
-        assertThat(events.findByTask(task.id())).containsExactly(event);
-        assertThat(outbox.pending(10)).containsExactly(event);
+        var recorded = events.findByTask(task.id()).get(0);
+        assertThat(recorded.eventId()).isEqualTo(event.eventId());
+        assertThat(recorded.metadata()).containsEntry("tenantId", "legacy").containsEntry("entrypoint", "tasks");
+        assertThat(outbox.pending(10)).containsExactly(recorded);
         outbox.markPublished(event.eventId(), Instant.now());
         assertThat(outbox.pending(10)).isEmpty();
     }

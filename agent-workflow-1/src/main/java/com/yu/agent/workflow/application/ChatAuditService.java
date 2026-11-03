@@ -27,6 +27,10 @@ import java.util.UUID;
  */
 @Service
 public class ChatAuditService {
+    private KnowledgeSearchClient knowledge;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void knowledge(KnowledgeSearchClient knowledge) { this.knowledge = knowledge; }
+
     private final TaskRepository tasks;
     private final EventRepository events;
     private final TaskAuditWriter auditWriter;
@@ -48,7 +52,7 @@ public class ChatAuditService {
                 ? null : idempotencyKey.trim();
         // The repository unique constraint resolves concurrent retries; do not
         // pre-check here or two instances can both pass before either inserts.
-        AgentTask candidate = new AgentTask(UUID.randomUUID().toString(), userId, role, request, normalizedKey, Instant.now());
+        AgentTask candidate = new AgentTask(UUID.randomUUID().toString(), userId, role, request, normalizedKey, Instant.now(), com.yu.agent.workflow.security.TenantIdentity.current(), "chat");
         AgentTask task = tasks.create(candidate);
         if (task != candidate) {
             if (task.status() == TaskStatus.SUCCEEDED) {
@@ -91,7 +95,11 @@ public class ChatAuditService {
     }
 
     public DeepSeekToolCallingService.ToolChatResult replay(ChatSession session) {
-        AgentTaskView view = session.existing();
+        AgentTask task = tasks.require(session.taskId());
+        com.yu.agent.workflow.security.TenantIdentity.require(task.tenantId());
+        if (!task.userId().equals(session.userId())) throw BusinessException.of("FORBIDDEN", "Chat owner required");
+        if (knowledge != null) knowledge.revalidateTask(new com.yu.agent.workflow.tools.ToolContext(session.userId(), session.role(), task.id(), session.traceId(), task.tenantId()));
+        AgentTaskView view = task.view();
         if (view == null) view = tasks.require(session.taskId()).view();
         int rounds = (int) events.findByTask(session.taskId()).stream()
                 .filter(event -> "MODEL_ROUND".equals(event.type())).count();
@@ -137,6 +145,15 @@ public class ChatAuditService {
             List<String> names = toolCalls.stream().map(com.yu.agent.workflow.application.ToolCall::name).toList();
             audit(task, session.traceId(), "MODEL_ROUND", session.userId(), null,
                     "Model round completed", Map.of("round", round, "toolCount", toolCalls.size(), "toolNames", names));
+        }
+
+        @Override
+        public void onModelMetadata(int round, Map<String, Object> metadata) {
+            if (metadata.isEmpty()) return;
+            Map<String, Object> values = new HashMap<>(metadata);
+            values.put("round", round);
+            audit(tasks.require(session.taskId()), session.traceId(), "MODEL_USAGE", session.userId(), null,
+                    "Model invocation metadata", values);
         }
 
         @Override

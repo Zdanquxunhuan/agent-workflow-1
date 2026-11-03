@@ -21,6 +21,8 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/commerce")
 public class CommerceController {
+    @org.springframework.beans.factory.annotation.Value("${agent.commerce.tenant:legacy}")
+    private String businessTenant = "legacy";
     private final CommerceRepository commerce;
     private final JwtUserResolver users;
 
@@ -34,6 +36,7 @@ public class CommerceController {
                                                   @AuthenticationPrincipal Jwt jwt,
                                                   @RequestHeader(value = "X-Trace-Id", required = false) String traceId) {
         AuthenticatedUser user = users.resolve(jwt);
+        com.yu.agent.workflow.security.TenantIdentity.requireBusinessTenant(com.yu.agent.workflow.security.TenantIdentity.current(), businessTenant);
         if (user.role() == UserRole.AGENT) {
             throw BusinessException.of("FORBIDDEN", "Role is not allowed to read order data");
         }

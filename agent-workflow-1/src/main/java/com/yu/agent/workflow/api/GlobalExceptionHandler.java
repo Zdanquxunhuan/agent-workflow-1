@@ -41,7 +41,10 @@ public class GlobalExceptionHandler {
             case "TASK_NOT_FOUND", "NOT_FOUND" -> HttpStatus.NOT_FOUND;
             case "MODEL_UNAVAILABLE", "DOWNSTREAM_UNAVAILABLE", "RAG_UNAVAILABLE" -> HttpStatus.SERVICE_UNAVAILABLE;
             case "RAG_RATE_LIMITED" -> HttpStatus.TOO_MANY_REQUESTS;
-            case "RAG_TASK_TENANCY_REQUIRED" -> HttpStatus.CONFLICT;
+            case "RAG_TASK_TENANCY_REQUIRED", "RAG_EVIDENCE_CHANGED" -> HttpStatus.CONFLICT;
+            case "MODEL_DEADLINE" -> HttpStatus.GATEWAY_TIMEOUT;
+            case "MODEL_INVALID_RESPONSE", "ANSWER_INVALID_CITATION" -> HttpStatus.BAD_GATEWAY;
+            case "NO_EVIDENCE", "MODEL_CONTEXT_BUDGET" -> HttpStatus.UNPROCESSABLE_ENTITY;
             case "RESULT_NOT_VERIFIED" -> HttpStatus.CONFLICT;
             case "INVALID_STATE", "APPROVAL_REQUIRED", "IDEMPOTENCY_CONFLICT", "CONFLICT",
                  "REFUND_NOT_ALLOWED", "ADDRESS_CHANGE_NOT_ALLOWED" -> HttpStatus.CONFLICT;

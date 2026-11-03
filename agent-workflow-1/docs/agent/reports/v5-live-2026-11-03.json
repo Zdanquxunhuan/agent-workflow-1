@@ -1,0 +1,29 @@
+{
+  "modelCalls" : [ {
+    "gateway" : "spring-ai",
+    "elapsedMs" : 1418,
+    "toolSchemaVersion" : "readonly-v1",
+    "usageSource" : "provider",
+    "outputTokens" : 73,
+    "model" : "deepseek-flash",
+    "inputTokens" : 517,
+    "promptVersion" : "agent-readonly-v5"
+  }, {
+    "gateway" : "spring-ai",
+    "elapsedMs" : 1151,
+    "toolSchemaVersion" : "readonly-v1",
+    "usageSource" : "provider",
+    "outputTokens" : 143,
+    "model" : "deepseek-flash",
+    "inputTokens" : 1229,
+    "promptVersion" : "agent-readonly-v5"
+  } ],
+  "result" : {
+    "taskId" : "v5-live",
+    "answer" : "订单 ORD-1001 当前状态为已发货（SHIPPED），物流状态为运输中（IN_TRANSIT），支付状态为成功，已付金额 199 CNY，可退金额 199 CNY，已退金额 0。 [call_00_EYKDofnK8aGPVAUG4WkN3884]\n原文：SHIPPED\n来源：tool:call_00_EYKDofnK8aGPVAUG4WkN3884\n\n已发货订单退款需要主管审批。 [e7adee9e-0ec8-4b04-9bb5-c0b69b241049]\n原文：已发货订单退款需要主管审批。\n来源：http://127.0.0.1:18091/api/v1/citations/e7adee9e-0ec8-4b04-9bb5-c0b69b241049",
+    "rounds" : 2,
+    "executedTools" : [ "order.query", "knowledge.search" ]
+  },
+  "scope" : "one synthetic order and policy; real DeepSeek and RAG API/PG/S3; lexical retrieval; embedding double; in-memory Java task store",
+  "verifiedAt" : "2026-11-03T14:11:07.331422700Z"
+}

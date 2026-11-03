@@ -43,20 +43,21 @@ public class JdbcTaskRepository implements TaskRepository {
         AgentTaskView view = task.view();
         try {
             jdbc.update("""
-                    insert into tasks(id, user_id, role, request, status, idempotency_key, created_at, updated_at, result_message, side_effect_count, plan_json, approval_json)
-                    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    insert into tasks(id, user_id, role, request, status, idempotency_key, created_at, updated_at, result_message, side_effect_count, plan_json, approval_json, tenant_id, entrypoint)
+                    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, view.id(), view.userId(), view.role().name(), view.request(), view.status().name(), view.idempotencyKey(),
                     Timestamp.from(view.createdAt()), Timestamp.from(view.updatedAt()), view.resultMessage(), view.sideEffectCount(),
-                    json(view.plan()), json(view.approval()));
+                    json(view.plan()), json(view.approval()), view.tenantId(), view.entrypoint());
             return task;
         } catch (DuplicateKeyException ex) {
             // Multiple instances can race on the same (user_id, idempotency_key).
             // Return the winner's task; never overwrite its plan/status.
             if (view.idempotencyKey() == null || view.idempotencyKey().isBlank()) throw ex;
-            AgentTask existing = byIdempotency(view.userId(), view.idempotencyKey());
+            AgentTask existing = byIdempotency(view.tenantId(), view.userId(), view.entrypoint(), view.idempotencyKey());
             if (existing == null) throw ex;
             log.info("Unique constraint resolved concurrent create taskId={} user={} key={}",
                     existing.id(), view.userId(), view.idempotencyKey());
+            validateReplay(task, existing);
             return existing;
         }
     }
@@ -66,15 +67,15 @@ public class JdbcTaskRepository implements TaskRepository {
     public AgentTask save(AgentTask task) {
         AgentTaskView view = task.view();
         jdbc.update("""
-                insert into tasks(id, user_id, role, request, status, idempotency_key, created_at, updated_at, result_message, side_effect_count, plan_json, approval_json)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                insert into tasks(id, user_id, role, request, status, idempotency_key, created_at, updated_at, result_message, side_effect_count, plan_json, approval_json, tenant_id, entrypoint)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 on duplicate key update user_id=values(user_id), role=values(role), request=values(request),
                   status=values(status), idempotency_key=values(idempotency_key), updated_at=values(updated_at),
                   result_message=values(result_message), side_effect_count=values(side_effect_count),
                   plan_json=values(plan_json), approval_json=values(approval_json)
                 """, view.id(), view.userId(), view.role().name(), view.request(), view.status().name(), view.idempotencyKey(),
                 Timestamp.from(view.createdAt()), Timestamp.from(view.updatedAt()), view.resultMessage(), view.sideEffectCount(),
-                json(view.plan()), json(view.approval()));
+                json(view.plan()), json(view.approval()), view.tenantId(), view.entrypoint());
         jdbc.update("delete from task_steps where task_id = ?", view.id());
         for (AgentStep step : view.steps()) {
             jdbc.update("""
@@ -90,7 +91,7 @@ public class JdbcTaskRepository implements TaskRepository {
     @Override
     public AgentTask require(String id) {
         List<AgentTaskView> found = jdbc.query("""
-                select id, user_id, role, request, status, idempotency_key, created_at, updated_at, result_message, side_effect_count, plan_json, approval_json
+                select id, user_id, role, request, status, idempotency_key, created_at, updated_at, result_message, side_effect_count, plan_json, approval_json, tenant_id, entrypoint
                 from tasks where id = ?
                 for update
                 """, (rs, rowNum) -> {
@@ -100,7 +101,7 @@ public class JdbcTaskRepository implements TaskRepository {
                     rs.getTimestamp("updated_at").toInstant(), TaskStatus.valueOf(rs.getString("status")),
                     read(rs.getString("plan_json"), TaskPlan.class),
                     loadSteps(taskId), read(rs.getString("approval_json"), ApprovalRequest.class),
-                    rs.getString("result_message"), rs.getInt("side_effect_count"));
+                    rs.getString("result_message"), rs.getInt("side_effect_count"), rs.getString("tenant_id"), rs.getString("entrypoint"));
         }, id);
         if (found.isEmpty()) throw BusinessException.of("TASK_NOT_FOUND", "Task does not exist: " + id);
         return AgentTask.restore(found.get(0));
@@ -108,9 +109,13 @@ public class JdbcTaskRepository implements TaskRepository {
 
     @Override
     public AgentTask byIdempotency(String userId, String key) {
+        return byIdempotency("legacy", userId, "tasks", key);
+    }
+
+    private AgentTask byIdempotency(String tenant, String userId, String entrypoint, String key) {
         if (key == null || key.isBlank()) return null;
-        List<String> ids = jdbc.query("select id from tasks where user_id = ? and idempotency_key = ?",
-                (rs, rowNum) -> rs.getString(1), userId, key);
+        List<String> ids = jdbc.query("select id from tasks where tenant_id = ? and user_id = ? and entrypoint = ? and idempotency_key = ?",
+                (rs, rowNum) -> rs.getString(1), tenant, userId, entrypoint, key);
         return ids.isEmpty() ? null : require(ids.get(0));
     }
 
@@ -129,6 +134,11 @@ public class JdbcTaskRepository implements TaskRepository {
                 rs.getString("result_message"), rs.getTimestamp("started_at").toInstant(),
                 rs.getTimestamp("finished_at") == null ? null : rs.getTimestamp("finished_at").toInstant(),
                 rs.getString("result_json") == null ? Map.of() : readMap(rs.getString("result_json"))), taskId);
+    }
+
+    private void validateReplay(AgentTask candidate, AgentTask existing) {
+        if (!candidate.request().equals(existing.request()))
+            throw BusinessException.of("IDEMPOTENCY_CONFLICT", "Idempotency key is bound to a different request");
     }
 
     private String json(Object value) {

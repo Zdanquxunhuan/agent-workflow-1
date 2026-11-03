@@ -1,20 +1,20 @@
 # AI Agent 面试导向版本路线与 RAG 生产化清单
 
-更新时间：2026-11-03（V4 已实现；采纳 toAjob 对齐路线，规划 V5–V10）。**后续版本以 AI Agent 面试为主要目标：补齐 Java AI 框架、短期/长期记忆、MCP、多模型与交互优化，形成可演示、可解释、有验证证据的售后 Agent。** 本次调整计划，不代表新增功能已经实现。
+更新时间：2026-11-03（V5 本地实现与有限验证完成；下一版 V6）。**后续版本以 AI Agent 面试为主要目标：补齐 Java AI 框架、短期/长期记忆、MCP、多模型与交互优化，形成可演示、可解释、有验证证据的售后 Agent。** V5 当前范围见 [交付说明](docs/agent/delivery-v5.md) 与 [验证记录](docs/agent/verification-v5-2026-11-03.md)；生产门槛仍保留。
 
-当前代码覆盖异步入库、授权混合检索/重排、单文档版本治理，以及单轮有引用问答，尚未达到生产发布条件。V4 15 项小样本/核心测试通过；真实 DeepSeek 首次 402，用户充值后同一篇短政策/同一条问题复验通过。工作库未升级到 0004，V4 未部署。业务质量验收、rewrite、父块、整库重建、SSE/会话与完整 Agent 租户改造仍待完成。
+当前代码覆盖异步入库、授权混合检索/重排、单文档版本治理，以及单轮有引用问答，尚未达到生产发布条件。V4 15 项小样本/核心测试通过；真实 DeepSeek 首次 402，用户充值后同一篇短政策/同一条问题复验通过。工作库未升级到 0004，V4 未部署。业务质量验收、rewrite、父块、整库重建、SSE/会话、企业委托与全链路生产验收仍待完成。
 
 状态依据：[运行说明](docs/rag/implementation.md)、[V1 历史验收](docs/rag/verification-2026-11-02.md)、[V2 验收](docs/rag/verification-v2-2026-11-02.md)、[ADR-002](docs/rag/adr-002-hybrid-retrieval.md)。V2 增加隔离评测 runner、合成语料、检索与权限回归；具体实测边界以 V2 记录为准，不替代业务质量、压力、HA 和恢复验收。
 
 V3 范围见 [开发交付文档](docs/rag/version-3.md)，实际执行范围见 [V3 测试记录](docs/rag/verification-v3-2026-11-03.md)。[测试交接清单](docs/rag/testing-v3-handoff.md) 保留完整候选场景，未全部执行。下文“待验证”指剩余迁移演练、端到端/页面或生产验证，不否定已通过的基础回归；不能引用 V1/V2 数字作为 V3 证据。
 
-V4 范围见 [问答交付说明](docs/rag/version-4.md)、[小样本验证](docs/rag/verification-v4-2026-11-03.md)。不将 V3 的 53 项历史通过数字充当本轮全量回归，不把模拟回答测试当作真实 LLM 质量验收。[岗位差距分析](toAjob-distance.md) 的建议已转为本文第 11 节的后续开发顺序；V4 历史范围保持不变。下一版本详见 [V5 开发计划](docs/agent/version-5.md)。
+V4 范围见 [问答交付说明](docs/rag/version-4.md)、[小样本验证](docs/rag/verification-v4-2026-11-03.md)。不将 V3 的 53 项历史通过数字充当本轮全量回归，不把模拟回答测试当作真实 LLM 质量验收。[岗位差距分析](toAjob-distance.md) 的建议已转为本文第 11 节的后续开发顺序；V4 历史范围保持不变。V5 原目标见 [执行基线](docs/agent/version-5.md)，下一版本为 V6 短期记忆。
 
 本文 `[x]` 表示该条明确范围已实现，验证边界以验收记录为准；`[ ]` 表示仍有工作未完成。涉及多项能力的总项标为“部分完成”，不因基础能力落地而把整个生产阶段勾选完成。容量、时延和质量指标仍是待实测的首发目标。
 
 ## 1. 结论与当前差距
 
-**已采用同仓维护、独立部署的 Python/FastAPI RAG 应用，通过 HTTP 对接 Java。** RAG 负责文档接入、解析、向量索引、权限、检索、引用与 V4 单轮知识问答。Java 继续负责业务工具、任务编排和审批，当前仅开放无状态知识查询桥接，完整 Agent 任务/聊天接入尚未开放。
+**已采用同仓维护、独立部署的 Python/FastAPI RAG 应用，通过 HTTP 对接 Java。** RAG 负责文档接入、解析、向量索引、权限、检索、引用与 V4 单轮知识问答。Java 继续负责业务工具、任务编排和审批，V5 增加显式开关控制的任务/聊天知识集成，本地联合回答通过，企业后台凭据交换尚未实现。
 
 FastAPI 是 API 框架，不会自动解决生产可靠性。已把解析、切块和向量化流程交给 MQ 驱动的独立 Worker，模型在独立服务运行；OCR 待补。在线查询与离线入库目前仍共用一个 embedding 实例，算力隔离/配额是后续任务。异步重计算的框架依据见 FastAPI [Background Tasks](https://fastapi.tiangolo.com/tutorial/background-tasks/#caveat)。
 
@@ -28,10 +28,10 @@ FastAPI 是 API 框架，不会自动解决生产可靠性。已把解析、切�
 | [Embedding](rag-inference/server.py)、[Reranker](rag-inference/reranker_server.py) | 两个固定 revision 的真实 CPU 模型、常驻/预热/就绪、reranker 文件大小/hash 校验 | 动态 batch、GPU 容量基准、线上与导入资源隔离、完整 profile 注册 |
 | [检索管线](rag-service/app/retrieval/pipeline.py)、[问答](rag-service/app/answers.py) | hybrid/RRF/rerank、预算/重授权；V4 结构化问答、引用与版本门禁、调用预算和反馈，真实单条问答通过 | rewrite、父块、业务语义质量、规模容量验证 |
 | [管理页面](rag-service/app/static/index.html)、[问答页面](rag-service/app/static/answers.js) | 上传/检索/授权、V3 版本治理；V4 非流式问答、引用、用量和反馈 | 页面交互验收；批量上传、复杂解析预览、回收站、SSE/会话、反馈审核与配额 |
-| [Java HTTP 客户端](src/main/java/com/yu/agent/workflow/application/HttpRagKnowledgeSearchClient.java)、[查询入口](src/main/java/com/yu/agent/workflow/api/KnowledgeController.java) | local/http 适配、可信 JWT 检查、完整响应 deadline/大小限制、无状态桥接、禁止故障回 demo | 任务/审计/幂等表的租户迁移、持久授权委托、聊天引用约束、熔断与 trace |
+| [Java HTTP 客户端](src/main/java/com/yu/agent/workflow/application/HttpRagKnowledgeSearchClient.java)、[查询入口](src/main/java/com/yu/agent/workflow/api/KnowledgeController.java) | local/http 适配、可信 JWT 检查、完整响应 deadline/大小限制、无状态桥接、禁止故障回 demo | 企业委托、工作库 V7 升级与生产验收、熔断与统一 trace；任务租户化/本地委托/引用约束已实现 |
 | [Compose](compose.rag.yaml)、[测试](rag-service/tests/test_integration.py)、[真实验收](rag-service/scripts/acceptance.py) | 本地真实基础设施与模型运行，隔离测试库/bucket，权限和可靠性回归 | 独立 CI、经审核业务质量集、压力/恢复演练、HA/PITR、监控告警、生产发布报告 |
 
-已有 Java JWT、工具白名单、审批、审计和 Outbox 的设计继续保留。Java 任务/聊天审计目前没有完整租户边界，远程 RAG 对这些入口返回 `RAG_TASK_TENANCY_REQUIRED`，避免证据进入未隔离的任务存储；RAG 达标也不代表整个 Agent 已满足生产要求。
+已有 Java JWT、工具白名单、审批、审计和 Outbox 的设计继续保留。V5 已贯通任务/聊天审计租户与回放边界；默认仍返回 `RAG_TASK_TENANCY_REQUIRED`，仅显式启用且授权条件齐备时开放。业务适配器固定单租户，企业委托未落地；RAG 达标不代表整个 Agent 已满足生产要求。
 
 ## 2. 产品范围与优先级
 
@@ -471,15 +471,16 @@ V3 首次上传保留自动发布，新版默认人工发布，调用者可显�
 
 ### 8.3 接入现有 Java Agent
 
-以下未完成项提升为 V5 主线，实施顺序和验收见 [V5 计划](docs/agent/version-5.md)。先接入 Spring AI 模型适配，再完成租户/委托和证据门禁，最后开放已验收的任务/聊天路径；不通过删除门禁提前演示。
+V5 本地交付与限制见 [说明](docs/agent/delivery-v5.md)。以下区分已实现的受控路径与仍待完成的生产项。
 
 - [x] 已新增 `KnowledgeSearchClient`、local/http 适配与 `agent.knowledge.backend`；生产配置要求 http/HTTPS，远端故障不回退 3 条演示文档。
 - [x] `knowledge.search` 已调用适配器，保留 `evidence/citation/hits` 并携带 documentVersionId/chunkId；无状态 `POST /api/v1/knowledge/search` 已与真实 RAG 联调。
 - [x] HTTP 客户端要求已验证 JWT 与 RAG audience/tenant/subject 匹配，仅请求配置服务，不跟随重定向；KB 列表+检索共用 15 秒默认 deadline，响应上限 1 MiB，检查基础 schema，引用 URL 在本地构造。
-- [ ] 扩展可信主体到 `AuthenticatedUser/ToolContext` 和持久任务，完成任务、审计、幂等键、聊天/恢复路径的 tenant 隔离；保存委托授权引用并在恢复时重授权，再解除 `RAG_TASK_TENANCY_REQUIRED` 门禁。
+- [x] V5 可信主体贯通任务/审计/幂等/回放，持久保存委托与证据，具备本地重新签名和撤销路径；远程任务 RAG 仍需显式开关。
+- [ ] 企业 token exchange、工作库 V7 迁移部署与完整生产恢复验收；当前业务适配固定一个租户。
 - [ ] 补服务间 trace、熔断、按总预算控制的重试、证据 token 上限、明确的 KB 范围选择。当前桥接自动选择可访问的最多 5 个 KB，超过上限明确失败。
-- [ ] 完整 Agent 路径调用 `/search` 取证据，再由聊天模型结合业务工具回答；管理台调用 `/answers`，共用引用契约和权限约束。
-- [ ] Java 最终回答增加引用校验、无证据门禁、prompt injection 回归；不能因 HTTP 成功就把无证据变成肯定答案。
+- [x] V5 Java 调用 `/search` 联合业务工具回答；管理台继续调用 `/answers`。真实服务层合成样例通过，完整 HTTP 入口验收仍待补。
+- [x] V5 Java 最终回答校验来源/连续原文及当前权限/修订，无证据拒答；不代表语义正确率或完整 prompt injection 攻防验收。
 - [ ] 在现有客户端单测和真实桥接烟测上补全 429/超时/5xx、恶意内容、跨租户任务、任务恢复撤权和完整聊天契约测试。
 
 ## 9. 质量、容量与上线验收目标
@@ -543,7 +544,7 @@ V3 首次上传保留自动发布，新版默认人工发布，调用者可显�
 
 ### 11.1 版本主线：优先补齐 AI Agent 面试能力
 
-版本顺序调整为 **V5 Java AI 框架与安全集成 → V6 短期记忆 → V7 长期记忆 → V8 MCP → V9 流式与多模型成本控制 → V10 受控重规划与部署演练**。V1–V4 保留历史编号；V5 起是整个 Java Agent + RAG 项目的版本，不再只是 Python RAG 功能编号。下表 V5–V10 全部为计划，尚未实施；J01–J06 来自 [toAjob](toAjob.md)。
+版本顺序调整为 **V5 Java AI 框架与安全集成 → V6 短期记忆 → V7 长期记忆 → V8 MCP → V9 流式与多模型成本控制 → V10 受控重规划与部署演练**。V1–V4 保留历史编号；V5 起是整个 Java Agent + RAG 项目的版本，不再只是 Python RAG 功能编号。下表 V5 已完成本地实现与小样本验证（企业委托/生产验收除外），V6–V10 为待实施计划；J01–J06 来自 [toAjob](toAjob.md)。
 
 | 版本 | 主要交付与依赖 | 面试可展示的验收结果 | 岗位对应 / 范围控制 |
 | --- | --- | --- | --- |
@@ -559,7 +560,9 @@ V5–V7 优先补当前最大缺口，完成后即可组织第一轮完整项目
 
 每版先验证少量代表场景：正常、越权、失效/删除、超时/预算和该版关键并发边界；实际模型、测试替身、历史报告分别记录。面试样例不冒充业务准确率评测；第 9 节较大样本、容量和生产门槛保留到相应验收，不要求每次开发重复整个矩阵。exact/ANN、rewrite、父块等优化先有失败样本与开关对照，不为关键词换库或重写 Python RAG。
 
-### 11.2 下一版 V5：三个可独立验收的交付
+### 11.2 V5 交付基线与下一版 V6
+
+当前交付见 [V5 说明](docs/agent/delivery-v5.md)，下述保留目标基线；下一版实现 V6 会话与短期记忆。
 
 1. **V5A 框架适配**：优先评估 Spring AI，以当前 Java 17 / Spring Boot 3.5.16 为兼容基线，锁定正式版本并记录选型。实现现有 `ToolCallingGateway` 的适配，保留 `ToolRegistry`、最多 4 轮的应用侧循环与审批状态机；先用业务只读工具验收。框架内置自动工具执行不得绕开现有控制。只做完本项不能宣布完整 V5 已交付。
 2. **V5B 主体、租户和委托**：统一可信身份上下文，完成任务、事件/聊天审计、幂等回放、审批、恢复和工具目标的隔离；迁移历史数据有显式归属，不能把 NULL tenant 当成公共数据。后台按持久授权引用重获最小权限，失败/撤权时停止。未通过的路径继续关闭。
@@ -578,7 +581,7 @@ M 编号继续供旧文档引用，**不再表示下一版本的串行开发顺�
 | M2：真实入库闭环 | 第一条本地链路已验收：上传→MQ→解析/切块→真实 BGE→PG→授权检索/引用 | 阶段产物恢复、DLQ、真实进程故障/乱序/重启演练、完整格式样本验收；预签名/批量上传另补 |
 | M3：检索质量 | V2 已实现合成评测/runner、中文词法/编号、RRF、rerank、完整块预算与检索诊断 | 经审核业务集、按需 rewrite、父块/相邻块、质量与容量验收 |
 | M4：更新与治理 | V3 已开发单文档版本/CAS 发布/回滚、历史引用、保留期 GC、版本页面；基础回归已通过 | 工作库迁移/完整并发恢复/页面验收；整库 manifest/CAS、影子重建、孤立对象/备份清理、恢复对账 |
-| M5：问答与 Agent | V4 已交付单轮 `/answers`、结构化引用门禁、生成前后授权、基础反馈；真实单条问答通过，Java 无状态桥接保留 | 业务回答质量验收、SSE/会话/反馈审核闭环；Java 任务/审计/幂等租户迁移、委托与恢复重授权 |
+| M5：问答与 Agent | V4 已交付单轮 `/answers`、结构化引用门禁、生成前后授权、基础反馈；真实单条问答通过，Java 无状态桥接保留 | 业务回答质量验收、SSE/会话/反馈审核闭环；企业委托与生产恢复验收；Java V7 租户迁移和本地委托代码已有有限验证 |
 | M6：文档与运行控制 | 部分基础：DOCX 表格文本、输入上限、单独 CPU 推理、基础审计/页面 | OCR/HTML/复杂版面/审核、解析沙箱、配额/费用/限流、在线与导入隔离、看板/告警、管理台补齐 |
 | M7：生产发布 | 未验收；现有 Compose 仅用于开发/集成 | HA、PITR/恢复、安全/故障/压力演练、灰度回滚/runbook、生产配置；第 9 节及全部 P0/P1 通过 |
 | M8：增强 | 未开始 | 连接器、BM25/sparse、多向量、拆解/多模态/GraphRAG；每项先有业务样本、权限方案和收益对照 |
@@ -597,7 +600,7 @@ M 编号继续供旧文档引用，**不再表示下一版本的串行开发顺�
 
 ### 11.5 原 N01–N07：剩余工作与新版路线的映射
 
-V2 已交付 N01 的评测工程和 N02/N03 基础能力；V3 单文档生命周期已有基础回归；V4 已完成 N07 的单轮回答。下一开发主线是 V5，而不是重复开发 V4 或先做完 N05/N06。下表保留 RAG 待办；正式 IdP、密钥隔离、解析沙箱、配额和运维门禁仍是开放生产访问前的要求。
+V2 已交付 N01 的评测工程和 N02/N03 基础能力；V3 单文档生命周期已有基础回归；V4 已完成 N07 的单轮回答。下一开发主线是 V6 短期记忆，在 V5 本地闭环上推进，不重复开发 V4 或先做完 N05/N06。下表保留 RAG 待办；正式 IdP、密钥隔离、解析沙箱、配额和运维门禁仍是开放生产访问前的要求。
 
 | 任务 | 现状与新版安排 | 可验收交付 |
 | --- | --- | --- |

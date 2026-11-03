@@ -30,7 +30,7 @@ class HttpRagKnowledgeSearchClientTests {
     private String searchBody = "{\"hits\":[{\"document_id\":\"" + ID + "\",\"document_version_id\":\"" + ID
             + "\",\"chunk_id\":\"" + ID + "\",\"title\":\"Policy\",\"text\":\"Supervisor approval required\","
             + "\"distance\":0.1,\"citation\":{\"url\":\"https://untrusted.example/leak\"}}]}";
-    private final ToolContext context = new ToolContext("alice", UserRole.CUSTOMER_SERVICE, "rag-stateless", "trace");
+    private final ToolContext context = new ToolContext("alice", UserRole.CUSTOMER_SERVICE, "rag-stateless", "trace", "demo");
 
     @BeforeEach
     void setup() throws Exception {

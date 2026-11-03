@@ -65,6 +65,7 @@ public class DevTokenController {
         if (audience != null && !audience.isBlank()) {
             claims.audience(List.of(audience));
         }
+        if (request.tenantId() != null) claims.claim("tenant_id", TenantIdentity.validate(request.tenantId()));
         withRoles(claims, rolesClaim, List.of(role.name()));
         String token = encoder.encode(JwtEncoderParameters.from(
                 JwsHeader.with(MacAlgorithm.HS256).build(), claims.build())).getTokenValue();
@@ -99,6 +100,7 @@ public class DevTokenController {
 
     public record DevTokenRequest(@NotBlank @Pattern(regexp = "[A-Za-z0-9._@-]{1,64}") String subject,
                                   @NotBlank String role,
-                                  String traceId) {
+                                  String traceId,
+                                  @Pattern(regexp = "[A-Za-z0-9_-]{1,80}") String tenantId) {
     }
 }

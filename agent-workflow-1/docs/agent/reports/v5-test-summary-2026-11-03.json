@@ -1,0 +1,69 @@
+{
+  "scope": "latest saved targeted reports, not a full regression run; retries not added",
+  "suites": [
+    {
+      "name": "com.yu.agent.workflow.Version5Tests",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "11.829"
+    },
+    {
+      "name": "com.yu.agent.workflow.HttpRagKnowledgeSearchClientTests",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "7.622"
+    },
+    {
+      "name": "com.yu.agent.workflow.AgentChatAuditTests",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "16.159"
+    },
+    {
+      "name": "com.yu.agent.workflow.ChatAuditServiceTests",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "8.512"
+    },
+    {
+      "name": "com.yu.agent.workflow.ToolCallingServiceTests",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "0.029"
+    },
+    {
+      "name": "com.yu.agent.workflow.TaskAuditWriterTests",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "0.187"
+    },
+    {
+      "name": "com.yu.agent.workflow.Version5JdbcTests",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "181.647"
+    },
+    {
+      "name": "com.yu.agent.workflow.Version5LiveTests",
+      "tests": "1",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "4.577"
+    }
+  ]
+}

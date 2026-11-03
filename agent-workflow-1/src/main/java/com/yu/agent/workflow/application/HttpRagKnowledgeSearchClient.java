@@ -35,6 +35,9 @@ public class HttpRagKnowledgeSearchClient implements KnowledgeSearchClient {
     private final URI base;
     private final String audience;
     private final Duration timeout;
+    private RagTaskAccess taskAccess;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void taskAccess(RagTaskAccess taskAccess) { this.taskAccess = taskAccess; }
 
     public HttpRagKnowledgeSearchClient(ObjectMapper mapper,
             @Value("${agent.knowledge.http.base-url:}") String baseUrl,
@@ -53,52 +56,98 @@ public class HttpRagKnowledgeSearchClient implements KnowledgeSearchClient {
     }
 
     @Override
+    public void prepareTask(ToolContext context) {
+        if (taskAccess == null) throw BusinessException.of("RAG_TASK_TENANCY_REQUIRED", "Task knowledge integration is disabled");
+        String token = taskAccess.token(context);
+        try {
+            var result = call("api/v1/knowledge-bases", null, token, System.nanoTime() + timeout.toNanos());
+            if (!result.path("items").isArray() || result.path("items").size() > 5)
+                throw BusinessException.of("RAG_KB_SCOPE_REQUIRED", "Select at most five accessible knowledge bases");
+            List<String> ids = new ArrayList<>();
+            for (var kb : result.path("items")) ids.add(UUID.fromString(kb.path("id").asText()).toString());
+            taskAccess.scope(context, ids);
+        } catch (BusinessException ex) { throw ex; }
+        catch (InterruptedException ex) { Thread.currentThread().interrupt(); throw BusinessException.of("RAG_UNAVAILABLE", "Delegation setup interrupted"); }
+        catch (Exception ex) { throw BusinessException.of("RAG_UNAVAILABLE", "Could not establish knowledge scope"); }
+    }
+
+    @Override
     public List<Hit> search(String query, ToolContext context, int limit) {
-        if (!"rag-stateless".equals(context.taskId())) {
+        boolean stateless = "rag-stateless".equals(context.taskId());
+        if (!stateless && taskAccess == null) {
             throw BusinessException.of("RAG_TASK_TENANCY_REQUIRED",
                     "Use the stateless knowledge endpoint until the task ledger supports tenant isolation");
         }
-        var authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (!(authentication instanceof JwtAuthenticationToken auth) || !auth.isAuthenticated()
-                || !context.userId().equals(auth.getToken().getSubject())
-                || !auth.getToken().getAudience().contains(audience)
-                || auth.getToken().getClaimAsString("tenant_id") == null
-                || auth.getToken().getClaimAsString("tenant_id").isBlank()) {
-            throw BusinessException.of("RAG_IDENTITY_REQUIRED",
-                    "Knowledge search requires a verified tenant identity with the RAG audience");
-        }
-        String token = auth.getToken().getTokenValue();
+        String token = stateless ? requestToken(context) : taskAccess.token(context);
         try {
             long deadline = System.nanoTime() + timeout.toNanos();
             JsonNode libraries = call("api/v1/knowledge-bases", null, token, deadline);
             if (!libraries.path("items").isArray()) throw new IllegalArgumentException("Invalid KB response");
             List<String> kbIds = new ArrayList<>();
             if (libraries.path("items").size() > 5)
-                throw BusinessException.of("RAG_KB_SCOPE_REQUIRED", "Use the RAG search API to select up to five knowledge bases");
-            for (JsonNode kb : libraries.path("items")) {
-                kbIds.add(UUID.fromString(kb.path("id").asText()).toString());
-                if (kbIds.size() == 5) break;
-            }
+                throw BusinessException.of("RAG_KB_SCOPE_REQUIRED", "Select at most five accessible knowledge bases");
+            for (JsonNode kb : libraries.path("items")) kbIds.add(UUID.fromString(kb.path("id").asText()).toString());
+            if (!stateless) kbIds = taskAccess.scope(context, kbIds);
             if (kbIds.isEmpty()) return List.of();
             JsonNode result = call("api/v1/search", Map.of("query", query, "knowledge_base_ids", kbIds,
                     "top_k", Math.max(1, Math.min(limit, 20))), token, deadline);
             if (!result.path("hits").isArray()) throw new IllegalArgumentException("Invalid search response");
             List<Hit> hits = new ArrayList<>();
+            List<RagTaskAccess.Source> sources = new ArrayList<>();
             for (JsonNode hit : result.path("hits")) {
                 String documentId = UUID.fromString(hit.path("document_id").asText()).toString();
                 String versionId = UUID.fromString(hit.path("document_version_id").asText()).toString();
                 String chunkId = UUID.fromString(hit.path("chunk_id").asText()).toString();
                 String snippet = hit.path("text").asText();
                 if (snippet.isBlank() || snippet.length() > 16000) throw new IllegalArgumentException("Invalid evidence");
-                // Never trust a model/server-provided external citation URL.
+                if (!stateless) {
+                    JsonNode current = call("api/v1/citations/" + chunkId, null, token, deadline);
+                    if (!current.path("is_current").asBoolean() || !versionId.equals(current.path("version_id").asText())
+                            || !snippet.equals(current.path("text").asText()) || !current.path("content_revision").isIntegralNumber())
+                        throw BusinessException.of("RAG_EVIDENCE_CHANGED", "Knowledge evidence changed");
+                    sources.add(new RagTaskAccess.Source(chunkId, versionId, current.path("content_hash").asText(),
+                            current.path("content_revision").asLong()));
+                }
                 hits.add(new Hit(documentId, hit.path("title").asText(), snippet,
-                        base.resolve("api/v1/citations/" + chunkId).toString(),
-                        hit.path("score").isNumber() ? hit.path("score").asDouble()
-                                : (hit.path("distance").isNumber() ? 1 - hit.path("distance").asDouble() : 0),
-                        versionId, chunkId));
+                        base.resolve("api/v1/citations/" + chunkId).toString(), (hit.path("score").isNumber() ? hit.path("score").asDouble() : 1 - hit.path("distance").asDouble()), versionId, chunkId));
                 if (hits.size() == limit) break;
             }
+            if (!stateless) taskAccess.remember(context.taskId(), sources);
             return List.copyOf(hits);
+        } catch (BusinessException ex) { throw ex; }
+        catch (InterruptedException ex) { Thread.currentThread().interrupt(); throw BusinessException.of("RAG_UNAVAILABLE", "Knowledge search interrupted"); }
+        catch (Exception ex) { throw BusinessException.of("RAG_UNAVAILABLE", "Knowledge search failed"); }
+    }
+
+    private String requestToken(ToolContext context) {
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (!(authentication instanceof JwtAuthenticationToken auth) || !auth.isAuthenticated()
+                || !context.userId().equals(auth.getToken().getSubject())
+                || !auth.getToken().getAudience().contains(audience)
+                || auth.getToken().getClaimAsString("tenant_id") == null
+                || auth.getToken().getClaimAsString("tenant_id").isBlank()
+                || !context.tenantId().equals(auth.getToken().getClaimAsString("tenant_id"))) {
+            throw BusinessException.of("RAG_IDENTITY_REQUIRED",
+                    "Knowledge search requires a verified tenant identity with the RAG audience");
+        }
+        return auth.getToken().getTokenValue();
+    }
+
+    @Override
+    public void revalidateTask(ToolContext context) {
+        if (taskAccess == null || taskAccess.sources(context.taskId()).isEmpty()) return;
+        String token = taskAccess.token(context);
+        if (SecurityContextHolder.getContext().getAuthentication() instanceof JwtAuthenticationToken) token = requestToken(context);
+        try {
+            long deadline = System.nanoTime() + timeout.toNanos();
+            for (var source : taskAccess.sources(context.taskId())) {
+                JsonNode current = call("api/v1/citations/" + source.chunkId(), null, token, deadline);
+                if (!current.path("is_current").asBoolean() || !source.versionId().equals(current.path("version_id").asText())
+                        || !source.hash().equals(current.path("content_hash").asText())
+                        || !current.path("content_revision").isIntegralNumber()
+                        || source.revision() != current.path("content_revision").asLong())
+                    throw BusinessException.of("RAG_EVIDENCE_CHANGED", "Knowledge evidence changed; submit a new request");
+            }
         } catch (BusinessException ex) {
             throw ex;
         } catch (InterruptedException ex) {

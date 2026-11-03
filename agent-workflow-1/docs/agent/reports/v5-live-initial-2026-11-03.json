@@ -1,0 +1,10 @@
+{
+  "status": "failed",
+  "scope": "One explicitly approved synthetic order and one-sentence policy; real Spring AI/DeepSeek and RAG API/PostgreSQL/S3; lexical retrieval; embedding double; in-memory Java task store",
+  "errorCode": "ANSWER_INVALID_CITATION",
+  "returnedAnswer": false,
+  "modelCallLimit": 4,
+  "actualModelCalls": null,
+  "usage": null,
+  "note": "The first live harness did not persist invocation metadata on failure. Null means unknown, not zero. Source/quote validation rejected the final output. Raw final output was not retained; its precise mismatch cannot be established from this run. No automatic retry occurred. Subsequent verification must retain invocation counts."
+}

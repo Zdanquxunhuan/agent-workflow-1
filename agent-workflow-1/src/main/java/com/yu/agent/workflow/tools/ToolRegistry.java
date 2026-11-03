@@ -11,6 +11,8 @@ import java.util.Map;
 @Component
 public class ToolRegistry {
     private final Map<String, AgentTool> tools = new LinkedHashMap<>();
+    @org.springframework.beans.factory.annotation.Value("${agent.commerce.tenant:legacy}")
+    private String businessTenant = "legacy";
 
     public ToolRegistry(Collection<AgentTool> registeredTools) {
         registeredTools.forEach(tool -> {
@@ -29,6 +31,8 @@ public class ToolRegistry {
     }
 
     public ToolResult execute(String name, Map<String, Object> arguments, ToolContext context) {
+        if (!"knowledge.search".equals(name))
+            com.yu.agent.workflow.security.TenantIdentity.requireBusinessTenant(context.tenantId(), businessTenant);
         AgentTool tool = require(name);
         UserRole role = context.role();
         if (!tool.allowedRoles().contains(role) && role != UserRole.ADMIN) {

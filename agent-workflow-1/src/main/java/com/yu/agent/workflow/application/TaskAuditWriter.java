@@ -34,6 +34,12 @@ public class TaskAuditWriter {
 
     @Transactional(transactionManager = "workflowTransactionManager")
     public void write(AgentTask task, AuditEvent event) {
+        if (!task.id().equals(event.taskId())) throw new IllegalArgumentException("Audit task mismatch");
+        var metadata = new java.util.LinkedHashMap<String, Object>(event.metadata());
+        metadata.put("tenantId", task.tenantId());
+        metadata.put("entrypoint", task.entrypoint());
+        event = new AuditEvent(event.eventId(), event.taskId(), event.traceId(), event.type(), event.actor(),
+                event.toolName(), event.status(), event.message(), metadata, event.occurredAt());
         tasks.save(task);
         events.append(event);
         outbox.append(event);
