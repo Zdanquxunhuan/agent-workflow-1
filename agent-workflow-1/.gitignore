@@ -38,3 +38,4 @@ __pycache__/
 .rag-local/
 rag-service/.env
 rag-inference/.env
+mcp-shipment/.env

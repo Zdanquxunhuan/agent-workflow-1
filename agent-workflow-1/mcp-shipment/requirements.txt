@@ -1,0 +1,5 @@
+# Direct dependencies pinned; resolve and audit the transitive lock in the delegated validation phase.
+mcp==1.30.0
+PyJWT[crypto]==2.15.1
+PyMySQL[rsa]==1.1.2
+uvicorn==0.54.0

@@ -1,0 +1,29 @@
+{
+  "name": "shipment_track",
+  "description": "Read the authorized order's current shipment status and recent status events.",
+  "inputSchema": {
+    "type": "object", "additionalProperties": false, "required": ["orderId"],
+    "properties": {"orderId": {"type": "string", "pattern": "^ORD-[A-Z0-9-]{1,48}$", "maxLength": 52}}
+  },
+  "outputSchema": {
+    "type": "object", "additionalProperties": false,
+    "required": ["orderId", "shipmentId", "carrier", "status", "shippedAt", "deliveredAt", "events", "truncated", "observedAt", "grantRevision", "ledgerId"],
+    "properties": {
+      "ledgerId": {"type": "string", "pattern": "^[a-fA-F0-9-]{36}$", "maxLength": 36},
+      "orderId": {"type": "string", "pattern": "^ORD-[A-Z0-9-]{1,48}$", "maxLength": 52},
+      "shipmentId": {"type": "string", "minLength": 1, "maxLength": 64},
+      "carrier": {"type": "string", "minLength": 1, "maxLength": 64},
+      "status": {"type": "string", "pattern": "^[A-Z0-9_]{1,32}$"},
+      "shippedAt": {"type": "string", "maxLength": 40},
+      "deliveredAt": {"type": "string", "maxLength": 40},
+      "observedAt": {"type": "string", "minLength": 1, "maxLength": 40},
+      "grantRevision": {"type": "integer", "minimum": 1},
+      "truncated": {"type": "boolean"},
+      "events": {"type": "array", "maxItems": 20, "items": {
+        "type": "object", "additionalProperties": false, "required": ["status", "occurredAt"],
+        "properties": {"status": {"type": "string", "pattern": "^[A-Z0-9_]{1,32}$"}, "occurredAt": {"type": "string", "minLength": 1, "maxLength": 40}}
+      }}
+    }
+  },
+  "annotations": {"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}
+}

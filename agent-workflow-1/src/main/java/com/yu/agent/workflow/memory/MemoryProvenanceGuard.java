@@ -13,6 +13,8 @@ import java.util.*;
 @Component
 @ConditionalOnProperty(name="agent.workflow.persistence",havingValue="jdbc")
 public class MemoryProvenanceGuard {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.yu.agent.workflow.mcp.McpEvidenceGuard mcpEvidence;
     private final JdbcTemplate jdbc;private final KnowledgeSearchClient knowledge;
     public MemoryProvenanceGuard(JdbcTemplate jdbc,KnowledgeSearchClient knowledge){this.jdbc=jdbc;this.knowledge=knowledge;}
     @Transactional(transactionManager="workflowTransactionManager")
@@ -27,6 +29,7 @@ public class MemoryProvenanceGuard {
             if(System.nanoTime()>deadline)throw BusinessException.of("MODEL_DEADLINE","Memory provenance validation timed out");
             String id=pending.removeFirst();if(!visited.add(id))continue;
             if(visited.size()>200)throw BusinessException.of("MODEL_CONTEXT_BUDGET","Memory provenance graph exceeds limit");
+            if(mcpEvidence!=null)mcpEvidence.validateTask(new ToolContext(context.userId(),context.role(),id,context.traceId(),context.tenantId()));
             var uses=jdbc.queryForList("SELECT u.revision AS used_revision,m.* FROM task_memory_uses u LEFT JOIN long_term_memories m ON m.id=u.memory_id WHERE u.task_id=?",id);
             for(var m:uses){
                 if(m.get("id")==null || !context.tenantId().equals(m.get("tenant_id")) || !context.userId().equals(m.get("owner_id"))

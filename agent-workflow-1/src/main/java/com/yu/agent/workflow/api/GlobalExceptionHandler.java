@@ -37,6 +37,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> business(BusinessException ex, HttpServletRequest request) {
         HttpStatus status = switch (ex.code()) {
             case "UNAUTHORIZED" -> HttpStatus.UNAUTHORIZED;
+            case "MCP_ACCESS_DENIED", "MCP_IDENTITY_REQUIRED", "MCP_TOOL_BLOCKED" -> HttpStatus.FORBIDDEN;
+            case "MCP_NOT_FOUND" -> HttpStatus.NOT_FOUND;
+            case "MCP_EVIDENCE_CHANGED" -> HttpStatus.CONFLICT;
+            case "MCP_BUSY", "MCP_RATE_LIMITED" -> HttpStatus.TOO_MANY_REQUESTS;
+            case "MCP_TIMEOUT" -> HttpStatus.GATEWAY_TIMEOUT;
+            case "MCP_UNAVAILABLE", "MCP_BACKEND_UNAVAILABLE", "MCP_CIRCUIT_OPEN", "MCP_AUDIT_UNAVAILABLE", "MCP_CANCELLED" -> HttpStatus.SERVICE_UNAVAILABLE;
+            case "MCP_PROTOCOL_ERROR", "MCP_CONTRACT_MISMATCH", "MCP_RESPONSE_TOO_LARGE", "MCP_TOOL_FAILED", "MCP_INTERNAL_ERROR" -> HttpStatus.BAD_GATEWAY;
             case "FORBIDDEN", "RAG_ACCESS_DENIED", "RAG_IDENTITY_REQUIRED" -> HttpStatus.FORBIDDEN;
             case "TASK_NOT_FOUND", "NOT_FOUND" -> HttpStatus.NOT_FOUND;
             case "MODEL_UNAVAILABLE", "DOWNSTREAM_UNAVAILABLE", "RAG_UNAVAILABLE", "MEMORY_INDEX_UNAVAILABLE" -> HttpStatus.SERVICE_UNAVAILABLE;

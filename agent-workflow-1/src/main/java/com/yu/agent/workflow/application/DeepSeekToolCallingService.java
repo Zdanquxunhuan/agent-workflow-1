@@ -29,6 +29,8 @@ public class DeepSeekToolCallingService {
     private long deadlineSeconds = 30;
     private KnowledgeSearchClient knowledge;
     @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.beans.factory.ObjectProvider<com.yu.agent.workflow.mcp.McpEvidenceGuard> mcpEvidence;
+    @org.springframework.beans.factory.annotation.Autowired
     public void knowledge(KnowledgeSearchClient knowledge) { this.knowledge = knowledge; }
 
     public DeepSeekToolCallingService(ToolCallingGateway gateway, ToolRegistry registry,
@@ -71,6 +73,7 @@ public class DeepSeekToolCallingService {
         List<String> executed = new ArrayList<>();
         for (int round = 1; round <= MAX_ROUNDS; round++) {
             historyCheck.run();
+            revalidateMcp(context, taskId);
             checkBudget(deadline, messages);
             if (knowledge != null && taskId != null) knowledge.revalidateTask(context);
             ToolCallingResponse response = gateway.complete(messages, specs);
@@ -83,6 +86,7 @@ public class DeepSeekToolCallingService {
                     throw BusinessException.of("NO_EVIDENCE", "Follow-up answers require fresh tool evidence");
                 String answer = strict ? grounded.render(response.content()) : response.content();
                 if (knowledge != null && taskId != null) knowledge.revalidateTask(context);
+                revalidateMcp(context, taskId);
                 checkBudget(deadline, messages);
                 return new ToolChatResult(taskId, answer == null ? "模型没有返回最终答复" : answer, round, executed);
             }
@@ -138,6 +142,10 @@ public class DeepSeekToolCallingService {
             specifications.add(Map.of("type", "function", "function", function));
         }
         return specifications;
+    }
+
+    private void revalidateMcp(ToolContext context,String taskId) {
+        if(taskId!=null && mcpEvidence!=null)mcpEvidence.ifAvailable(guard -> guard.validateTask(context));
     }
 
     private void checkBudget(long deadline, List<Map<String, Object>> messages) {

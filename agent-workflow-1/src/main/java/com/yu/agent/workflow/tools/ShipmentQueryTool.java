@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Set;
 
 @Component
+@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name="agent.mcp.shipment.enabled",havingValue="false",matchIfMissing=true)
 public class ShipmentQueryTool extends AbstractTool {
     private final CommerceRepository commerce;
 

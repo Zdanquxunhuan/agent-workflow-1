@@ -181,7 +181,8 @@ public class ChatAuditService {
             if (invocation == null) invocation = new Invocation(UUID.randomUUID().toString(), nextSequence++, startedAt);
             task.addStep(new AgentStep(invocation.stepId(), invocation.sequence(), internalName, call.arguments(),
                     result.success() ? "SUCCEEDED" : "FAILED", result.code(), result.message(),
-                    invocation.startedAt(), finishedAt));
+                    invocation.startedAt(), finishedAt,
+                    result.data().containsKey("mcpCallId") ? result.data() : Map.of()));
             audit(task, session.traceId(), "TOOL_EXECUTED", session.userId(), internalName, result.message(),
                     Map.of("round", round, "code", result.code(), "success", result.success()));
         }
