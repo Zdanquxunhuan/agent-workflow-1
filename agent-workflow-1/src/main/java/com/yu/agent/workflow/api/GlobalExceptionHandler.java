@@ -37,6 +37,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> business(BusinessException ex, HttpServletRequest request) {
         HttpStatus status = switch (ex.code()) {
             case "UNAUTHORIZED" -> HttpStatus.UNAUTHORIZED;
+            case "RUN_IDENTITY_EXPIRED" -> HttpStatus.UNAUTHORIZED;
+            case "RUN_BUSY", "RUN_BUDGET_EXCEEDED", "DAILY_BUDGET_EXCEEDED", "RUN_MODEL_LIMIT", "RUN_TOOL_LIMIT", "RUN_FALLBACK_LIMIT" -> HttpStatus.TOO_MANY_REQUESTS;
+            case "RUN_DEADLINE", "MODEL_TIMEOUT" -> HttpStatus.GATEWAY_TIMEOUT;
+            case "RUN_CANCELLED", "RUN_NOT_ACTIVE", "RUN_RESULT_UNAVAILABLE", "RUN_INTERRUPTED" -> HttpStatus.CONFLICT;
+            case "MODEL_REJECTED", "MODEL_ENDPOINT_BLOCKED" -> HttpStatus.BAD_GATEWAY;
+            case "MODEL_TRANSIENT", "MODEL_RATE_LIMITED", "RUN_STREAM_CLOSED", "RUN_ACCOUNTING_INCOMPLETE", "RUN_CONTEXT_REQUIRED" -> HttpStatus.SERVICE_UNAVAILABLE;
             case "MCP_ACCESS_DENIED", "MCP_IDENTITY_REQUIRED", "MCP_TOOL_BLOCKED" -> HttpStatus.FORBIDDEN;
             case "MCP_NOT_FOUND" -> HttpStatus.NOT_FOUND;
             case "MCP_EVIDENCE_CHANGED" -> HttpStatus.CONFLICT;

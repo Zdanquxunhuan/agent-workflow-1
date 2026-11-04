@@ -14,6 +14,8 @@ import java.util.*;
 @Service
 public class ConversationService {
     @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.beans.factory.ObjectProvider<com.yu.agent.workflow.runtime.RuntimeLedger> runtimeLedger;
+    @org.springframework.beans.factory.annotation.Autowired
     private org.springframework.beans.factory.ObjectProvider<com.yu.agent.workflow.memory.MemoryService> memoryProvider;
     @org.springframework.beans.factory.annotation.Autowired
     private org.springframework.beans.factory.ObjectProvider<com.yu.agent.workflow.memory.MemoryProvenanceGuard> memoryGuard;
@@ -47,6 +49,7 @@ public class ConversationService {
             throw BusinessException.of("NOT_FOUND", "Conversation does not exist");
         return c;
     }
+    public void authorizeRuntime(String id,AuthenticatedUser user){authorized(id,user,true);}
     private void validateSources(Collection<String> tasks, AuthenticatedUser user, String trace) {
         for (String task : new LinkedHashSet<>(tasks)) {
             knowledge.revalidateTask(new ToolContext(user.userId(), user.role(), task, trace, user.tenantId()));
@@ -81,9 +84,11 @@ public class ConversationService {
         var t = turns.get(turns.size()-1);
         turns.set(turns.size()-1, new Conversation.Turn(t.key(), t.message(), t.taskId(), "FAILED", null, 0, List.of(), "CANCELLED"));
         repository.save(c, c.next(c.participants(), turns, c.summary(), false));
+        if(runtimeLedger!=null)runtimeLedger.ifAvailable(ledger->ledger.cancelConversation(id,t.key(),user));
     }
     public record Reply(String conversationId, long revision, Conversation.Turn turn, int estimatedTokens, int omittedTurns) {}
     public Reply send(String id, long revision, String key, String message, AuthenticatedUser user, String trace) {
+        com.yu.agent.workflow.runtime.RunScope.checkpoint();
         if (key == null || !key.matches("[A-Za-z0-9_-]{1,80}") || message == null || message.isBlank() || message.length() > 2000)
             throw BusinessException.of("INVALID_ARGUMENT", "A valid idempotency key and message (1-2000 characters) are required");
         var c = authorized(id, user, true);
@@ -96,6 +101,7 @@ public class ConversationService {
         requireRevision(c, revision); requireIdle(c);
         if (c.turns().size() >= 100) throw BusinessException.of("CONFLICT", "Conversation limit reached; create a new conversation");
         var memory = memoryProvider == null ? null : memoryProvider.getIfAvailable();
+        com.yu.agent.workflow.runtime.RunScope.progress("context_loading",Map.of());
         if (memory != null) memory.requireModelTenant(user);
         var recalled = memory == null ? new com.yu.agent.workflow.memory.MemoryService.Selection(List.of(),List.of(),"") : memory.recall(user,message);
         int totalBudget = Math.max(512, Math.min(12000, contextBudget));
@@ -140,10 +146,14 @@ public class ConversationService {
             check.run();
             var done = new Conversation.Turn(key, message, session.taskId(), "COMPLETED", result.answer(), result.rounds(), result.executedTools(), null);
             turns.set(turns.size()-1, done);
-            audit.complete(session, result);
             var finished = working.next(working.participants(), turns, window.summary(), false);
-            repository.save(working, finished);
-            return new Reply(id, finished.revision(), done, window.estimatedTokens()+memoryBytes, window.omittedTurns());
+            var completedSession=session;
+            var previous=working;
+            return com.yu.agent.workflow.runtime.RunScope.publish(()->{
+                audit.complete(completedSession, result);
+                repository.save(previous, finished);
+                return new Reply(id, finished.revision(), done, window.estimatedTokens()+memoryBytes, window.omittedTurns());
+            });
         } catch (RuntimeException ex) {
             if (session != null) try { audit.fail(session, ex); } catch (RuntimeException failure) { ex.addSuppressed(failure); }
             turns.set(turns.size()-1, new Conversation.Turn(key, message, session == null ? null : session.taskId(), "FAILED", null, 0, List.of(),
@@ -154,6 +164,20 @@ public class ConversationService {
         }
     }
     private void assertUnchanged(Conversation c, AuthenticatedUser user) { requireRevision(authorized(c.id(), user, false), c.revision()); }
+    /** Internal recovery only: persisted run identity and turn key fence a crash-abandoned placeholder. */
+    public void abandonRuntime(String id,String tenant,String owner,String key,String taskId,String code) {
+        Conversation c;
+        try{c=repository.require(id,tenant);}catch(BusinessException ex){if("NOT_FOUND".equals(ex.code()))return;throw ex;}
+        if(!c.owner().equals(owner))throw BusinessException.of("FORBIDDEN","Runtime owner mismatch");
+        var turns=new ArrayList<>(c.turns());
+        for(int i=0;i<turns.size();i++) {
+            var t=turns.get(i);
+            if(t.key().equals(key) && "RUNNING".equals(t.status()) && (t.taskId()==null || Objects.equals(t.taskId(),taskId))) {
+                turns.set(i,new Conversation.Turn(t.key(),t.message(),t.taskId(),"FAILED",null,0,List.of(),code));
+                repository.save(c,c.next(c.participants(),turns,c.summary(),false));return;
+            }
+        }
+    }
     private void requireRevision(Conversation c, long expected) {
         if (c.revision() != expected) throw BusinessException.of("CONFLICT", "Conversation revision changed; reload");
     }

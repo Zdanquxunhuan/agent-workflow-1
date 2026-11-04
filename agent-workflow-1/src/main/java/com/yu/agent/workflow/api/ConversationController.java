@@ -13,6 +13,8 @@ import java.util.*;
 @RestController
 @RequestMapping("/api/v1/conversations")
 public class ConversationController {
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.beans.factory.ObjectProvider<com.yu.agent.workflow.runtime.RuntimeService> runtime;
     private final ConversationService service;
     private final JwtUserResolver users;
     public ConversationController(ConversationService service, JwtUserResolver users) { this.service = service; this.users = users; }
@@ -29,6 +31,11 @@ public class ConversationController {
     @PostMapping("/{id}/messages") public ApiResponse<ConversationService.Reply> send(@PathVariable String id,
             @Valid @RequestBody Message request, @RequestHeader("Idempotency-Key") String key, @AuthenticationPrincipal Jwt jwt) {
         String trace = UUID.randomUUID().toString();
+        if(runtime!=null && runtime.getIfAvailable()!=null) {
+            var user=users.resolve(jwt);
+            return ApiResponse.ok(runtime.getObject().synchronous(new com.yu.agent.workflow.runtime.RuntimeService.Request(request.message(),id,request.revision()),key,user,
+                    runId->service.send(id,request.revision(),key,request.message(),user,runId)),trace);
+        }
         return ApiResponse.ok(service.send(id, request.revision(), key, request.message(), users.resolve(jwt), trace), trace);
     }
     @PutMapping("/{id}/participants") public ApiResponse<Conversation> participants(@PathVariable String id,

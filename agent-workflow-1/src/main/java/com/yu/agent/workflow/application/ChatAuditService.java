@@ -48,6 +48,7 @@ public class ChatAuditService {
         this.auditWriter = auditWriter;
     }
 
+    @org.springframework.transaction.annotation.Transactional(transactionManager="workflowTransactionManager")
     public ChatSession start(String userId, UserRole role, String request,
                              String idempotencyKey, String traceId) {
         String normalizedKey = idempotencyKey == null || idempotencyKey.isBlank()
@@ -56,6 +57,7 @@ public class ChatAuditService {
         // pre-check here or two instances can both pass before either inserts.
         AgentTask candidate = new AgentTask(UUID.randomUUID().toString(), userId, role, request, normalizedKey, Instant.now(), com.yu.agent.workflow.security.TenantIdentity.current(), "chat");
         AgentTask task = tasks.create(candidate);
+        com.yu.agent.workflow.runtime.RunScope.bindTask(task.id());
         if (task != candidate) {
             if (task.status() == TaskStatus.SUCCEEDED) {
                 return new ChatSession(task.id(), task.userId(), task.role(), traceId, true, task.view());
@@ -112,6 +114,15 @@ public class ChatAuditService {
                 .filter(event -> "MODEL_ROUND".equals(event.type())).count();
         List<String> executedTools = view.steps().stream().map(AgentStep::toolName).toList();
         return new DeepSeekToolCallingService.ToolChatResult(session.taskId(), view.resultMessage(), rounds, executedTools);
+    }
+    @org.springframework.transaction.annotation.Transactional(transactionManager="workflowTransactionManager")
+    public void abandonRuntime(String taskId,String tenant,String owner,String trace,String code) {
+        AgentTask task=tasks.require(taskId);
+        if(!task.tenantId().equals(tenant) || !task.userId().equals(owner) || !"chat".equals(task.entrypoint()))throw BusinessException.of("FORBIDDEN","Runtime task owner mismatch");
+        if(task.status()==TaskStatus.CREATED || task.status()==TaskStatus.RECOVERY_REQUIRED) {
+            task.resultMessage("Runtime stopped before completion");transition(task,TaskStatus.CANCELLED,trace,owner);return;
+        }
+        if(!task.status().terminal())fail(new ChatSession(taskId,owner,task.role(),trace,false,null),BusinessException.of(code,"Runtime stopped before completion"));
     }
 
     private void ensureRunning(AgentTask task, String traceId, String actor) {

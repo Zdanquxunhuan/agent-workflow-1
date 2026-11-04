@@ -54,11 +54,13 @@ public class DeepSeekToolCallingService {
                                String taskId, ToolCallingAuditListener auditListener,
                                List<Map<String, Object>> history, Runnable historyCheck) {
         guard.check(request);
+        com.yu.agent.workflow.runtime.RunScope.checkpoint();
         boolean strict = "spring-ai".equals(gatewayMode) || knowledge instanceof HttpRagKnowledgeSearchClient;
         var context = new ToolContext(userId, role, taskId == null ? "chat" : taskId, traceId);
         if (strict && !java.util.Arrays.asList(allowedTenants.split(",")).contains(context.tenantId()))
             throw BusinessException.of("FORBIDDEN", "Tenant is not enabled for this model provider");
-        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(Math.max(1, deadlineSeconds));
+        long deadline = com.yu.agent.workflow.runtime.RunScope.capDeadline(com.yu.agent.workflow.runtime.RunScope.current()==null
+                ?System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(Math.max(1,deadlineSeconds)):Long.MAX_VALUE);
         GroundedAnswer grounded = new GroundedAnswer(objectMapper);
         int toolCount = 0;
         List<Map<String, Object>> messages = new ArrayList<>();
@@ -76,11 +78,16 @@ public class DeepSeekToolCallingService {
             revalidateMcp(context, taskId);
             checkBudget(deadline, messages);
             if (knowledge != null && taskId != null) knowledge.revalidateTask(context);
+            com.yu.agent.workflow.runtime.RunScope.evidenceCheck(()->{
+                historyCheck.run();revalidateMcp(context,taskId);
+                if(knowledge!=null && taskId!=null)knowledge.revalidateTask(context);
+            });
             ToolCallingResponse response = gateway.complete(messages, specs);
             checkBudget(deadline, messages);
             auditListener.onModelRound(round, response.toolCalls());
             auditListener.onModelMetadata(round, response.metadata());
             if (response.toolCalls().isEmpty()) {
+                com.yu.agent.workflow.runtime.RunScope.progress("answer_validating",Map.of());
                 historyCheck.run();
                 if (!history.isEmpty() && executed.isEmpty())
                     throw BusinessException.of("NO_EVIDENCE", "Follow-up answers require fresh tool evidence");
@@ -111,6 +118,7 @@ public class DeepSeekToolCallingService {
                     throw ex;
                 }
                 auditListener.onToolCallCompleted(round, call, internalName, startedAt, Instant.now(), result);
+                com.yu.agent.workflow.runtime.RunScope.progress("tool_finished",Map.of("tool",internalName,"code",result.code()));
                 ToolResult modelResult = modelResult(internalName, result);
                 if (strict) grounded.add(call.id(), internalName, modelResult);
                 executed.add(internalName);
@@ -149,6 +157,7 @@ public class DeepSeekToolCallingService {
     }
 
     private void checkBudget(long deadline, List<Map<String, Object>> messages) {
+        com.yu.agent.workflow.runtime.RunScope.checkpoint();
         if (System.nanoTime() >= deadline) throw BusinessException.of("MODEL_DEADLINE", "Request deadline exceeded");
         if (objectMapper.valueToTree(messages).toString().getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 64000)
             throw BusinessException.of("MODEL_CONTEXT_BUDGET", "Model input exceeds the byte budget");

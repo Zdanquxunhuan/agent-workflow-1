@@ -38,7 +38,12 @@ public class ToolRegistry {
         if (!tool.allowedRoles().contains(role) && role != UserRole.ADMIN) {
             throw BusinessException.of("FORBIDDEN", "Role is not allowed to execute tool: " + name);
         }
-        return tool.execute(arguments, context);
+        if(com.yu.agent.workflow.runtime.RunScope.current()!=null && !tool.readOnly())
+            throw BusinessException.of("TOOL_CALL_BLOCKED","Runtime only permits read-only tools");
+        com.yu.agent.workflow.runtime.RunScope.tool(name);
+        ToolResult result=tool.execute(arguments, context);
+        com.yu.agent.workflow.runtime.RunScope.checkpoint();
+        return result;
     }
 
     public boolean contains(String name) { return tools.containsKey(name); }

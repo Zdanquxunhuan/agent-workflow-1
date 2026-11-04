@@ -197,6 +197,7 @@ public class HttpRagKnowledgeSearchClient implements KnowledgeSearchClient {
     }
 
     private JsonNode call(String path, Object body, String token, long deadline) throws Exception {
+        deadline=com.yu.agent.workflow.runtime.RunScope.capDeadline(deadline);
         long remaining = deadline - System.nanoTime();
         if (remaining <= 0) throw BusinessException.of("RAG_UNAVAILABLE", "Knowledge search deadline exceeded");
         HttpRequest.Builder request = HttpRequest.newBuilder(base.resolve(path))
@@ -207,7 +208,7 @@ public class HttpRagKnowledgeSearchClient implements KnowledgeSearchClient {
                 .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)));
         var pending = client.sendAsync(request.build(), ignored -> new LimitedBodySubscriber());
         try {
-            HttpResponse<byte[]> response = pending.get(remaining, TimeUnit.NANOSECONDS);
+            HttpResponse<byte[]> response = com.yu.agent.workflow.runtime.RunScope.await(pending,deadline);
             if (response.statusCode() == 401 || response.statusCode() == 403 || response.statusCode() == 404)
                 throw BusinessException.of("RAG_ACCESS_DENIED", "Knowledge access was denied");
             if (response.statusCode() == 429)

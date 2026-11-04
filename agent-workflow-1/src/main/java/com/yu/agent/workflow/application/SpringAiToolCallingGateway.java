@@ -73,6 +73,9 @@ public class SpringAiToolCallingGateway implements ToolCallingGateway {
         } catch (BusinessException ex) {
             throw ex;
         } catch (RuntimeException ex) {
+            // V9's transport carries sanitized status/cancellation codes through SDK wrappers.
+            for(Throwable cause=ex;cause!=null;cause=cause.getCause())
+                if(cause instanceof BusinessException business)throw business;
             // Never expose provider bodies, prompts or credentials in API errors.
             throw BusinessException.of("MODEL_UNAVAILABLE", "Spring AI model call failed");
         }

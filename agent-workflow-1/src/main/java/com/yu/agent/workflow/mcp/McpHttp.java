@@ -15,6 +15,7 @@ final class McpHttp {
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2))
             .followRedirects(HttpClient.Redirect.NEVER).build();
     HttpResponse<byte[]> post(URI uri, Map<String,String> headers, String body, long deadline) {
+        deadline=com.yu.agent.workflow.runtime.RunScope.capDeadline(deadline);
         long remaining = deadline - System.nanoTime();
         if (remaining <= 0) throw failure("MCP_TIMEOUT");
         var builder = HttpRequest.newBuilder(uri).timeout(Duration.ofNanos(remaining))
@@ -22,7 +23,7 @@ final class McpHttp {
         headers.forEach(builder::header);
         LimitedBody subscriber = new LimitedBody();
         CompletableFuture<HttpResponse<byte[]>> pending = client.sendAsync(builder.build(), ignored -> subscriber);
-        try { return pending.get(Math.max(1, deadline-System.nanoTime()), TimeUnit.NANOSECONDS); }
+        try { return com.yu.agent.workflow.runtime.RunScope.await(pending,deadline); }
         catch (InterruptedException ex) { Thread.currentThread().interrupt(); throw failure("MCP_CANCELLED"); }
         catch (TimeoutException ex) { throw failure("MCP_TIMEOUT"); }
         catch (ExecutionException ex) {

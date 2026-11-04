@@ -63,6 +63,7 @@ public class MemoryIndexClient {
         if(!root.path("revision").isIntegralNumber() || root.path("revision").asLong()<m.revision()) throw unavailable();
     }
     private JsonNode call(String tenant,String owner,String operation,Object payload) {
+        com.yu.agent.workflow.runtime.RunScope.checkpoint();
         CompletableFuture<HttpResponse<byte[]>> pending=null;
         try {
             byte[] body=json.writeValueAsBytes(payload); Instant now=Instant.now();
@@ -73,7 +74,7 @@ public class MemoryIndexClient {
             var request=HttpRequest.newBuilder(base.resolve("internal/memory-index/"+operation)).timeout(Duration.ofSeconds(10))
                     .header("Content-Type","application/json").header("Authorization","Bearer "+token).POST(HttpRequest.BodyPublishers.ofByteArray(body)).build();
             pending=http.sendAsync(request,ignored -> new LimitedBody());
-            var response=pending.get(10,TimeUnit.SECONDS);
+            var response=com.yu.agent.workflow.runtime.RunScope.await(pending,System.nanoTime()+TimeUnit.SECONDS.toNanos(10));
             if(response.statusCode()!=200) throw BusinessException.of(switch(response.statusCode()) {
                 case 401,403 -> "MEMORY_INDEX_AUTH";
                 case 409 -> "MEMORY_INDEX_CONFLICT";
