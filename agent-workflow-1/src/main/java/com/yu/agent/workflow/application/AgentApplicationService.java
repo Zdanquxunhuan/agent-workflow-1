@@ -31,6 +31,8 @@ import java.util.UUID;
 
 @Service
 public class AgentApplicationService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.beans.factory.ObjectProvider<com.yu.agent.workflow.memory.MemoryProvenanceGuard> memoryGuard;
     private static final Logger log = LoggerFactory.getLogger(AgentApplicationService.class);
 
     private final TaskRepository tasks;
@@ -243,6 +245,8 @@ public class AgentApplicationService {
     }
 
     private AgentTaskView authorizedView(AgentTask task, String reader) {
+        if (memoryGuard != null && memoryGuard.getIfAvailable() != null)
+            memoryGuard.getObject().validateTask(new ToolContext(reader,task.role(),task.id(),"read",task.tenantId()));
         if (knowledge != null) knowledge.revalidateTask(new ToolContext(reader, task.role(), task.id(), "read", task.tenantId()));
         return task.view();
     }

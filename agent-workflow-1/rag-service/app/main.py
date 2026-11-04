@@ -31,6 +31,7 @@ from app import lifecycle
 from app.version_api import router as version_router, download_version
 from app.retention import router as retention_router
 from app.answers import router as answer_router
+from app.memory_index import router as memory_router
 
 @asynccontextmanager
 async def lifespan(app):
@@ -45,6 +46,9 @@ async def lifespan(app):
         conn.execute("SELECT content_revision FROM documents LIMIT 1")
         conn.execute("SELECT 1 FROM publication_events LIMIT 1")
         conn.execute("SELECT 1 FROM answer_runs LIMIT 1")
+        if settings().memory_index_enabled:
+            conn.execute("SELECT 1 FROM memory_vectors LIMIT 1")
+            conn.execute("SELECT 1 FROM memory_index_admissions LIMIT 1")
     tokenizer()  # Warm up segmentation outside the request deadline.
     async with create_pool() as search_pool, httpx.AsyncClient(
             limits=httpx.Limits(max_connections=8, max_keepalive_connections=4), follow_redirects=False) as model_http:
@@ -62,6 +66,7 @@ app = FastAPI(title="Workflow RAG", version="0.4.0", description="Grounded answe
 app.include_router(version_router)
 app.include_router(retention_router)
 app.include_router(answer_router)
+app.include_router(memory_router)
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)

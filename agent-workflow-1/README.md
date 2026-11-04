@@ -17,7 +17,7 @@
 
 ## 运行
 
-后续开发以 AI Agent 面试为目标，路线为 **V5 Spring AI 与安全 RAG 集成 → V6 短期记忆 → V7 长期记忆 → V8 MCP → V9 流式/多模型成本控制 → V10 受控重规划与部署演练**。V5 已完成本地实现、小样本测试及一条真实联合回答，V6 会话生产代码已编写，尚未编译/测试，见 [V6 说明](docs/agent/version-6.md) 与 [测试交接](docs/agent/testing-v6-handoff.md)；V7–V10 尚未实现。当前交付见 [V5 说明](docs/agent/delivery-v5.md)、[验证记录](docs/agent/verification-v5-2026-11-03.md)；范围与验收见 [版本路线](rag-production-to.md#11-分阶段实施计划)、[V5 目标基线](docs/agent/version-5.md)，取舍依据见 [岗位差距分析](toAjob-distance.md)。现有生产门槛继续保留，面试演示与生产上线分别评价。
+后续开发以 AI Agent 面试为目标，路线为 **V5 Spring AI 与安全 RAG 集成 → V6 短期记忆 → V7 长期记忆 → V8 MCP → V9 流式/多模型成本控制 → V10 受控重规划与部署演练**。V5 已完成本地实现、小样本测试及一条真实联合回答，V6 会话生产代码已编写，尚未编译/测试，见 [V6 说明](docs/agent/version-6.md) 与 [测试交接](docs/agent/testing-v6-handoff.md)；V7 已按生产目标编写长期记忆代码，尚未编译/测试，见 [V7 说明](docs/agent/version-7.md) 与 [测试设计](docs/agent/testing-v7-handoff.md)；V8–V10 尚未实现。当前交付见 [V5 说明](docs/agent/delivery-v5.md)、[验证记录](docs/agent/verification-v5-2026-11-03.md)；范围与验收见 [版本路线](rag-production-to.md#11-分阶段实施计划)、[V5 目标基线](docs/agent/version-5.md)，取舍依据见 [岗位差距分析](toAjob-distance.md)。现有生产门槛继续保留，面试演示与生产上线分别评价。
 
 ### 独立 RAG（Version 4，单轮可信问答）
 

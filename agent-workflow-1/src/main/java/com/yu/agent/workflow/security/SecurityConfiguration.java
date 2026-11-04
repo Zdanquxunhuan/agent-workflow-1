@@ -65,6 +65,7 @@ public class SecurityConfiguration {
                                 "/actuator/health", "/actuator/info", "/error").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/dev-token").permitAll()
                         .requestMatchers(HttpMethod.GET, "/conversation.html", "/conversation.js").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/memory.html", "/memory.js").permitAll()
                         .requestMatchers("/api/v1/integrations/reviews", "/api/v1/integrations/reviews/**").hasAnyRole("SUPERVISOR", "ADMIN")
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/tasks/*/approve",

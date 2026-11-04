@@ -185,3 +185,7 @@ docker compose -f compose.rag.yaml run --rm --no-deps -v "${PWD}/.rag-local/repo
 Compose 环境块可设置这些 `RAG_*` 值；只有 `RAG_RETRIEVAL_PROFILE` 已提供主机变量插值。检索策略回退可执行 `$env:RAG_RETRIEVAL_PROFILE='dense-v2'` 后重建 API 容器，保留加法 schema，切回时清除该主机变量。不是内容版本回滚。
 
 `/health/ready` 仍检查 PG/S3/embedding；reranker 是允许降级的依赖，其独立健康探针与每次检索的 degraded_components 共同反映状态，不能仅看 API ready 就推断已执行重排。模型单并发锁忙时也会降级；此 CPU 配置尚未完成生产吞吐验收。
+
+## V7 私人记忆索引（代码已编写、未验证）
+
+新增 Alembic 0005 与 `/internal/memory-index/upsert`、`/internal/memory-index/query`，由专用短期服务 token 访问。MySQL 保持记忆权威状态；PG 保存独立向量、修订与删除标记，结果不含正文。索引启用默认关闭，生产 embedding 传输须 HTTPS；具体配置、授权和限制见 [V7 说明](../agent/version-7.md)。本轮未运行迁移或测试，不改变既有历史验收结果。

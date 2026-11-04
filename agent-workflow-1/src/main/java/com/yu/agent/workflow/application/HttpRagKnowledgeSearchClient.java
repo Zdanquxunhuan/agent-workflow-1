@@ -72,6 +72,29 @@ public class HttpRagKnowledgeSearchClient implements KnowledgeSearchClient {
     }
 
     @Override
+    public void renewTaskAccess(ToolContext context) {
+        if(taskAccess==null) throw BusinessException.of("RAG_TASK_TENANCY_REQUIRED","Task knowledge integration is disabled");
+        String token=requestToken(context);
+        try {
+            long deadline=System.nanoTime()+timeout.toNanos();
+            var libraries=call("api/v1/knowledge-bases",null,token,deadline);
+            if(!libraries.path("items").isArray())throw new IllegalArgumentException();
+            List<String> ids=new ArrayList<>();
+            for(var kb:libraries.path("items"))ids.add(UUID.fromString(kb.path("id").asText()).toString());
+            for(var source:taskAccess.sources(context.taskId())) {
+                var current=call("api/v1/citations/"+source.chunkId(),null,token,deadline);
+                if(!current.path("is_current").asBoolean() || !source.versionId().equals(current.path("version_id").asText())
+                        || !source.hash().equals(current.path("content_hash").asText())
+                        || !current.path("content_revision").isIntegralNumber() || source.revision()!=current.path("content_revision").asLong())
+                    throw BusinessException.of("RAG_EVIDENCE_CHANGED","Renewal requires unchanged readable source evidence");
+            }
+            taskAccess.renew(context,ids);
+        }catch(BusinessException ex){throw ex;}
+        catch(InterruptedException ex){Thread.currentThread().interrupt();throw BusinessException.of("RAG_UNAVAILABLE","Renewal interrupted");}
+        catch(Exception ex){throw BusinessException.of("RAG_UNAVAILABLE","Could not renew knowledge access");}
+    }
+
+    @Override
     public List<Hit> search(String query, ToolContext context, int limit) {
         boolean stateless = "rag-stateless".equals(context.taskId());
         if (!stateless && taskAccess == null) {

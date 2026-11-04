@@ -8,6 +8,9 @@ public interface KnowledgeSearchClient {
     default void revalidateTask(ToolContext context) {}
     default void prepareTask(ToolContext context) {}
     default void inheritTaskEvidence(ToolContext context, List<String> sourceTasks) {}
+    default void renewTaskAccess(ToolContext context) {
+        throw com.yu.agent.workflow.api.BusinessException.of("INVALID_STATE", "This knowledge backend has no renewable grant");
+    }
 
     record Hit(String documentId, String title, String snippet, String citation, double score,
                String documentVersionId, String chunkId) {}

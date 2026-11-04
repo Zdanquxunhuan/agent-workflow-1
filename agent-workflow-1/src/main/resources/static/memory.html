@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>我的长期记忆</title>
+<style>body{font:16px system-ui;max-width:900px;margin:32px auto;padding:0 20px;background:#f6f8fb;color:#182435}input,select,textarea{padding:8px;margin:6px;max-width:95%}button{padding:8px;margin:4px}article,fieldset{padding:16px;margin:16px 0;background:white;border:1px solid #d8e0eb;border-radius:8px}pre{white-space:pre-wrap;overflow-wrap:anywhere}#status{white-space:pre-wrap}</style>
+<h1>我的长期记忆</h1><p>候选内容经你确认后才用于新会话。修改需要重新确认；删除后立即停止使用。</p>
+<p><a href="/conversation.html">返回会话</a></p>
+<label>访问令牌 <input id="token" type="password" autocomplete="off" size="50"></label>
+<button id="load">刷新列表</button><button id="next">下一页</button><button id="jobs">后台处理状态</button>
+<p><button id="settings">查看自动提取设置</button><button id="optin">允许完成任务后提取候选</button><button id="optout">关闭自动提取</button></p>
+<fieldset><legend>添加回答偏好</legend>
+<select id="slot" aria-label="偏好类型"><option value="response_style">详略</option><option value="language">语言</option><option value="format">格式</option></select>
+<select id="value" aria-label="偏好内容"></select>
+<label>有效天数 <input id="days" type="number" min="1" max="365" value="90"></label><button id="create">保存为候选</button></fieldset>
+<fieldset><legend>提取已完成任务的摘要</legend><label>任务编号 <input id="task" maxlength="64" size="40"></label><button id="extract">提交提取</button><p>摘要异步生成，查看并确认后才会建立检索索引。</p></fieldset>
+<p id="status" role="status"></p><section id="list"></section><pre id="detail"></pre>
+<script src="/memory.js" defer></script></html>

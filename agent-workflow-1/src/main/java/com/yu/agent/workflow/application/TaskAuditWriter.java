@@ -17,6 +17,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Component
 public class TaskAuditWriter {
+    @Autowired
+    private org.springframework.beans.factory.ObjectProvider<com.yu.agent.workflow.memory.MemoryService> memory;
     private final TaskRepository tasks;
     private final EventRepository events;
     private final AuditOutboxRepository outbox;
@@ -43,5 +45,9 @@ public class TaskAuditWriter {
         tasks.save(task);
         events.append(event);
         outbox.append(event);
+        if ("TASK_SUCCEEDED".equals(event.type()) && memory != null) {
+            var service = memory.getIfAvailable();
+            if (service != null) service.onTaskSucceeded(task);
+        }
     }
 }

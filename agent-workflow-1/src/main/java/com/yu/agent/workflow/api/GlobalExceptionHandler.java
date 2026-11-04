@@ -39,7 +39,9 @@ public class GlobalExceptionHandler {
             case "UNAUTHORIZED" -> HttpStatus.UNAUTHORIZED;
             case "FORBIDDEN", "RAG_ACCESS_DENIED", "RAG_IDENTITY_REQUIRED" -> HttpStatus.FORBIDDEN;
             case "TASK_NOT_FOUND", "NOT_FOUND" -> HttpStatus.NOT_FOUND;
-            case "MODEL_UNAVAILABLE", "DOWNSTREAM_UNAVAILABLE", "RAG_UNAVAILABLE" -> HttpStatus.SERVICE_UNAVAILABLE;
+            case "MODEL_UNAVAILABLE", "DOWNSTREAM_UNAVAILABLE", "RAG_UNAVAILABLE", "MEMORY_INDEX_UNAVAILABLE" -> HttpStatus.SERVICE_UNAVAILABLE;
+            case "MEMORY_CHANGED" -> HttpStatus.CONFLICT;
+            case "MEMORY_QUOTA" -> HttpStatus.TOO_MANY_REQUESTS;
             case "RAG_RATE_LIMITED" -> HttpStatus.TOO_MANY_REQUESTS;
             case "RAG_TASK_TENANCY_REQUIRED", "RAG_EVIDENCE_CHANGED" -> HttpStatus.CONFLICT;
             case "MODEL_DEADLINE" -> HttpStatus.GATEWAY_TIMEOUT;

@@ -27,6 +27,8 @@ import java.util.UUID;
  */
 @Service
 public class ChatAuditService {
+    @Autowired
+    private org.springframework.beans.factory.ObjectProvider<com.yu.agent.workflow.memory.MemoryProvenanceGuard> memoryGuard;
     private KnowledgeSearchClient knowledge;
     @org.springframework.beans.factory.annotation.Autowired
     public void knowledge(KnowledgeSearchClient knowledge) { this.knowledge = knowledge; }
@@ -69,6 +71,9 @@ public class ChatAuditService {
     public DeepSeekToolCallingService.ToolCallingAuditListener listener(ChatSession session) {
         return new Listener(session);
     }
+    public void memoryContext(ChatSession session, Map<String,Object> metadata) {
+        audit(tasks.require(session.taskId()),session.traceId(),"MEMORY_RECALL",session.userId(),null,"Memory selection recorded",metadata);
+    }
 
     public void complete(ChatSession session, DeepSeekToolCallingService.ToolChatResult result) {
         AgentTask task = tasks.require(session.taskId());
@@ -98,6 +103,8 @@ public class ChatAuditService {
         AgentTask task = tasks.require(session.taskId());
         com.yu.agent.workflow.security.TenantIdentity.require(task.tenantId());
         if (!task.userId().equals(session.userId())) throw BusinessException.of("FORBIDDEN", "Chat owner required");
+        if (memoryGuard != null && memoryGuard.getIfAvailable() != null)
+            memoryGuard.getObject().validateTask(new com.yu.agent.workflow.tools.ToolContext(session.userId(),session.role(),task.id(),session.traceId(),task.tenantId()));
         if (knowledge != null) knowledge.revalidateTask(new com.yu.agent.workflow.tools.ToolContext(session.userId(), session.role(), task.id(), session.traceId(), task.tenantId()));
         AgentTaskView view = task.view();
         if (view == null) view = tasks.require(session.taskId()).view();

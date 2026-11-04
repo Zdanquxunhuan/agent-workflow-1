@@ -13,6 +13,10 @@ import java.util.*;
 
 @Service
 public class ConversationService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.beans.factory.ObjectProvider<com.yu.agent.workflow.memory.MemoryService> memoryProvider;
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.beans.factory.ObjectProvider<com.yu.agent.workflow.memory.MemoryProvenanceGuard> memoryGuard;
     private final ConversationRepository repository;
     private final ChatAuditService audit;
     private final DeepSeekToolCallingService model;
@@ -44,8 +48,11 @@ public class ConversationService {
         return c;
     }
     private void validateSources(Collection<String> tasks, AuthenticatedUser user, String trace) {
-        for (String task : new LinkedHashSet<>(tasks))
+        for (String task : new LinkedHashSet<>(tasks)) {
             knowledge.revalidateTask(new ToolContext(user.userId(), user.role(), task, trace, user.tenantId()));
+            if (memoryGuard != null && memoryGuard.getIfAvailable() != null)
+                memoryGuard.getObject().validateTask(new ToolContext(user.userId(),user.role(),task,trace,user.tenantId()));
+        }
     }
     public Conversation get(String id, AuthenticatedUser user, String trace) {
         var c = authorized(id, user, false);
@@ -88,7 +95,19 @@ public class ConversationService {
         }
         requireRevision(c, revision); requireIdle(c);
         if (c.turns().size() >= 100) throw BusinessException.of("CONFLICT", "Conversation limit reached; create a new conversation");
-        var window = ConversationContext.build(c, message, Math.max(512, Math.min(12000, contextBudget)));
+        var memory = memoryProvider == null ? null : memoryProvider.getIfAvailable();
+        if (memory != null) memory.requireModelTenant(user);
+        var recalled = memory == null ? new com.yu.agent.workflow.memory.MemoryService.Selection(List.of(),List.of(),"") : memory.recall(user,message);
+        int totalBudget = Math.max(512, Math.min(12000, contextBudget));
+        // Preserve the current user message and room for a compact historical reference before adding optional memories.
+        var selection = memory == null ? recalled : memory.fit(recalled,totalBudget
+                - message.getBytes(java.nio.charset.StandardCharsets.UTF_8).length - 32 - (c.turns().isEmpty()?0:256));
+        String memoryPrompt = memory == null ? "" : memory.prompt(selection);
+        int memoryBytes = memoryPrompt.getBytes(java.nio.charset.StandardCharsets.UTF_8).length + (memoryPrompt.isEmpty()?0:32);
+        var window = ConversationContext.build(c, message, totalBudget - memoryBytes);
+        List<Map<String,Object>> contextMessages = new ArrayList<>();
+        if (!memoryPrompt.isEmpty()) contextMessages.add(Map.of("role","user","content",memoryPrompt));
+        contextMessages.addAll(window.messages());
         validateSources(window.sourceTasks(), user, trace);
         var turns = new ArrayList<>(c.turns());
         turns.add(new Conversation.Turn(key, message, null, "RUNNING", null, 0, List.of(), null));
@@ -104,16 +123,27 @@ public class ConversationService {
             working = attached;
             var taskContext = new ToolContext(user.userId(), user.role(), session.taskId(), trace, user.tenantId());
             knowledge.inheritTaskEvidence(taskContext, window.sourceTasks());
+            if (memory != null) {
+                memory.validate(selection,user);
+                memory.bind(session.taskId(),selection,window.sourceTasks());
+                audit.memoryContext(session,Map.of("decisions",selection.decisions(),"degraded",selection.degraded(),
+                        "memoryVersion","memory-v7","estimatedBytes",memoryBytes));
+            } else if (memoryGuard != null && memoryGuard.getIfAvailable() != null) {
+                memoryGuard.getObject().inherit(session.taskId(),window.sourceTasks());
+            }
             final Conversation fence = working;
-            Runnable check = () -> { assertUnchanged(fence, user); validateSources(window.sourceTasks(), user, trace); };
-            var result = model.chat(user.userId(), user.role(), message, trace, session.taskId(), audit.listener(session), window.messages(), check);
+            Runnable check = () -> {
+                assertUnchanged(fence, user); validateSources(window.sourceTasks(), user, trace);
+                if (memory != null) memory.validate(selection,user);
+            };
+            var result = model.chat(user.userId(), user.role(), message, trace, session.taskId(), audit.listener(session), contextMessages, check);
             check.run();
             var done = new Conversation.Turn(key, message, session.taskId(), "COMPLETED", result.answer(), result.rounds(), result.executedTools(), null);
             turns.set(turns.size()-1, done);
             audit.complete(session, result);
             var finished = working.next(working.participants(), turns, window.summary(), false);
             repository.save(working, finished);
-            return new Reply(id, finished.revision(), done, window.estimatedTokens(), window.omittedTurns());
+            return new Reply(id, finished.revision(), done, window.estimatedTokens()+memoryBytes, window.omittedTurns());
         } catch (RuntimeException ex) {
             if (session != null) try { audit.fail(session, ex); } catch (RuntimeException failure) { ex.addSuppressed(failure); }
             turns.set(turns.size()-1, new Conversation.Turn(key, message, session == null ? null : session.taskId(), "FAILED", null, 0, List.of(),

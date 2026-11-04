@@ -82,6 +82,8 @@ services:
     environment:
       <<: *rag-environment
       RAG_ANSWER_ENABLED: ${RAG_ANSWER_ENABLED:-false}
+      RAG_MEMORY_INDEX_ENABLED: ${RAG_MEMORY_INDEX_ENABLED:-false}
+      RAG_MEMORY_INDEX_SECRET: ${RAG_MEMORY_INDEX_SECRET:-}
       RAG_ANSWER_ALLOWED_TENANTS: ${RAG_ANSWER_ALLOWED_TENANTS:-[]}
       RAG_ANSWER_PROVIDER: ${RAG_ANSWER_PROVIDER:-deepseek}
       RAG_ANSWER_BASE_URL: ${RAG_ANSWER_BASE_URL:-https://api.deepseek.com}

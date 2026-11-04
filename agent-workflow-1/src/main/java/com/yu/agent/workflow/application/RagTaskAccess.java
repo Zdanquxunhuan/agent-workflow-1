@@ -94,6 +94,17 @@ public class RagTaskAccess {
         var rows = jdbc.queryForList("SELECT grant_json FROM task_knowledge_grants WHERE task_id=?", String.class, taskId);
         return rows.isEmpty() ? null : decode(rows.get(0), Grant.class);
     }
+    public void renew(ToolContext context, List<String> accessible) {
+        if (!enabled) denied();
+        var task=tasks.require(context.taskId());
+        if(!task.tenantId().equals(context.tenantId()) || !task.userId().equals(context.userId())) denied();
+        Grant old=grant(task.id());
+        if(old==null || old.revoked() || !accessible.containsAll(old.kbIds())) denied();
+        Grant next=new Grant(old.tenant(),old.subject(),old.kbIds(),Instant.now().plusSeconds(3600).getEpochSecond(),false);
+        boolean changed=jdbc==null ? grants.replace(task.id(),old,next)
+                : jdbc.update("UPDATE task_knowledge_grants SET grant_json=? WHERE task_id=? AND grant_json=CAST(? AS JSON)",encode(next),task.id(),encode(old))==1;
+        if(!changed) throw BusinessException.of("CONFLICT","Knowledge grant changed during renewal");
+    }
 
     public void revoke(String taskId, String actor) {
         var task = tasks.require(taskId);

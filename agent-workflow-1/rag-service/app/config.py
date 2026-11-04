@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     version_retention_days: int = 30
     version_keep_latest: int = 3
     answer_enabled: bool = False
+    memory_index_enabled: bool = False
+    memory_index_secret: SecretStr = SecretStr('')
     answer_allowed_tenants: list[str] = []
     answer_provider: str = 'deepseek'
     answer_base_url: str = 'https://api.deepseek.com'
@@ -61,6 +63,12 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_config(self):
+        if self.memory_index_enabled:
+            secret = self.memory_index_secret.get_secret_value()
+            if len(secret) < 32 or secret == self.auth_secret:
+                raise ValueError('Memory index requires a separate service signing secret of at least 32 characters')
+            if self.environment == 'production' and not self.embedding_url.startswith('https://'):
+                raise ValueError('Production memory embedding transport requires HTTPS')
         if self.answer_provider not in {'deepseek', 'chat_completions'}:
             raise ValueError('Unsupported answer provider')
         if not (5 <= self.answer_deadline_seconds <= 120 and 0 < self.answer_model_timeout <= 90
