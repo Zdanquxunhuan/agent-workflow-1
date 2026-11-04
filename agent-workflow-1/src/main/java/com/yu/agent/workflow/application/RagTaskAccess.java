@@ -31,6 +31,7 @@ public class RagTaskAccess {
     private final JdbcTemplate jdbc;
     private final Map<String, Grant> grants = new ConcurrentHashMap<>();
     private final Map<String, List<Source>> sources = new ConcurrentHashMap<>();
+    private final Map<String, List<String>> dependencies = new ConcurrentHashMap<>();
     @Value("${agent.knowledge.task-enabled:false}") private boolean enabled;
     @Value("${agent.auth.mode:local}") private String authMode = "local";
     @Value("${agent.knowledge.delegation.local-secret:}") private String secret = "";
@@ -62,6 +63,15 @@ public class RagTaskAccess {
                 .claim("delegated_task", task.id()).build();
         var encoder = new NimbusJwtEncoder(new ImmutableSecret<>(secret.getBytes(StandardCharsets.UTF_8)));
         return encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();
+    }
+
+    /** Caller already authorized the task/conversation; RAG must evaluate the current reader's ACL. */
+    public void validateRead(ToolContext context) {
+        if (!enabled) throw BusinessException.of("RAG_TASK_TENANCY_REQUIRED", "Task knowledge integration is disabled");
+        var task = tasks.require(context.taskId());
+        if (!task.tenantId().equals(context.tenantId())) denied();
+        Grant grant = grant(task.id());
+        if (grant != null && (grant.revoked() || grant.expiresAt() <= Instant.now().getEpochSecond())) denied();
     }
 
     public synchronized List<String> scope(ToolContext context, List<String> accessible) {
@@ -109,6 +119,22 @@ public class RagTaskAccess {
         if (jdbc == null) return sources.getOrDefault(taskId, List.of());
         return jdbc.query("SELECT * FROM task_knowledge_sources WHERE task_id=?", (r,n) ->
                 new Source(r.getString("chunk_id"), r.getString("version_id"), r.getString("content_hash"), r.getLong("content_revision")), taskId);
+    }
+    public void inherit(ToolContext context, List<String> sourceTasks) {
+        var target = tasks.require(context.taskId());
+        if (!target.tenantId().equals(context.tenantId()) || !target.userId().equals(context.userId())) denied();
+        if (sourceTasks.size() > 100) denied();
+        for (String id : new LinkedHashSet<>(sourceTasks)) {
+            var source = tasks.require(id);
+            if (id.equals(target.id()) || !source.tenantId().equals(target.tenantId())
+                    || !source.userId().equals(target.userId())) denied();
+            if (jdbc != null) jdbc.update("INSERT IGNORE INTO task_knowledge_dependencies(task_id,source_task_id) VALUES (?,?)", target.id(), id);
+        }
+        if (jdbc == null) dependencies.put(target.id(), List.copyOf(new LinkedHashSet<>(sourceTasks)));
+    }
+    public List<String> dependencies(String taskId) {
+        if (jdbc == null) return dependencies.getOrDefault(taskId, List.of());
+        return jdbc.queryForList("SELECT source_task_id FROM task_knowledge_dependencies WHERE task_id=?", String.class, taskId);
     }
     private String encode(Object value) { try { return json.writeValueAsString(value); } catch (Exception ex) { throw new IllegalStateException(ex); } }
     private <T> T decode(String value, Class<T> type) { try { return json.readValue(value, type); } catch (Exception ex) { throw new IllegalStateException(ex); } }

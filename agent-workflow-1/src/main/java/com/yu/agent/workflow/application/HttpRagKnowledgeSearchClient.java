@@ -135,11 +135,26 @@ public class HttpRagKnowledgeSearchClient implements KnowledgeSearchClient {
 
     @Override
     public void revalidateTask(ToolContext context) {
+        revalidateTask(context, new java.util.HashSet<>(), System.nanoTime() + timeout.toNanos());
+    }
+
+    @Override
+    public void inheritTaskEvidence(ToolContext context, List<String> sourceTasks) {
+        if (taskAccess == null && !sourceTasks.isEmpty())
+            throw BusinessException.of("RAG_TASK_TENANCY_REQUIRED", "Persistent knowledge dependencies are required");
+        if (taskAccess != null) taskAccess.inherit(context, sourceTasks);
+    }
+
+    private void revalidateTask(ToolContext context, java.util.Set<String> visited, long deadline) {
+        if (!visited.add(context.taskId())) return;
+        if (visited.size() > 100) throw BusinessException.of("MODEL_CONTEXT_BUDGET", "Knowledge dependency limit exceeded");
+        if (taskAccess != null) for (String source : taskAccess.dependencies(context.taskId()))
+            revalidateTask(new ToolContext(context.userId(), context.role(), source, context.traceId(), context.tenantId()), visited, deadline);
         if (taskAccess == null || taskAccess.sources(context.taskId()).isEmpty()) return;
-        String token = taskAccess.token(context);
-        if (SecurityContextHolder.getContext().getAuthentication() instanceof JwtAuthenticationToken) token = requestToken(context);
+        taskAccess.validateRead(context);
+        String token = SecurityContextHolder.getContext().getAuthentication() instanceof JwtAuthenticationToken
+                ? requestToken(context) : taskAccess.token(context);
         try {
-            long deadline = System.nanoTime() + timeout.toNanos();
             for (var source : taskAccess.sources(context.taskId())) {
                 JsonNode current = call("api/v1/citations/" + source.chunkId(), null, token, deadline);
                 if (!current.path("is_current").asBoolean() || !source.versionId().equals(current.path("version_id").asText())
