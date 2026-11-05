@@ -1,0 +1,47 @@
+# Companion to docs/agent/company-demo-plan.md. Local synthetic demonstration only.
+# Use compose.rag.yaml FIRST so build paths resolve from the repository root.
+# This overlay has not been started or validated against Docker as part of the plan delivery.
+services:
+  api:
+    environment:
+      RAG_AUTH_ISSUER: http://127.0.0.1:8080
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: company_root_local_only
+      MYSQL_DATABASE: workflow_agent
+      MYSQL_USER: workflow
+      MYSQL_PASSWORD: company_workflow_local_only
+      TZ: Asia/Shanghai
+    ports: ["127.0.0.1:13371:3306"]
+    volumes: ["company_mysql:/var/lib/mysql"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uworkflow", "-pcompany_workflow_local_only", "--silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+  shipment-mcp:
+    build:
+      context: .
+      dockerfile: mcp-shipment/Dockerfile
+    image: workflow-company-shipment:local
+    environment:
+      SHIPMENT_ENVIRONMENT: development
+      SHIPMENT_AUTH_MODE: local
+      SHIPMENT_RESOURCE_URL: http://127.0.0.1:8094/mcp
+      SHIPMENT_ISSUER: http://127.0.0.1:8080
+      SHIPMENT_LOCAL_SECRET: rag-local-development-secret-at-least-32-bytes
+      SHIPMENT_ALLOWED_CLIENT: workflow-agent
+      SHIPMENT_TENANT: demo
+      SHIPMENT_DB_HOST: mysql
+      SHIPMENT_DB_PORT: "3306"
+      SHIPMENT_DB_NAME: workflow_agent
+      SHIPMENT_DB_USER: mcp_reader
+      SHIPMENT_DB_PASSWORD: company_mcp_local_only
+      SHIPMENT_ALLOWED_HOSTS: 127.0.0.1:8094,localhost:8094
+      SHIPMENT_ALLOWED_ORIGINS: http://127.0.0.1:8080
+    ports: ["127.0.0.1:8094:8094"]
+    depends_on:
+      mysql: {condition: service_healthy}
+volumes:
+  company_mysql:

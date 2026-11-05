@@ -17,6 +17,8 @@
 
 ## 运行
 
+需要从上传政策开始演示整条公司售后业务，请看 [V1–V11 全流程演示计划](docs/agent/company-demo-plan.md)：包含 Docker 服务清单、启动命令、开发身份与授权、RAG 入库/版本/问答、Agent/记忆/MCP、审批退款及证据收尾。配套配置仅用于隔离本地合成演示；本次交付为计划，尚未执行。
+
 项目以 AI Agent 面试为目标，已迭代 **V5 Spring AI → V6 会话 → V7 长期记忆 → V8 MCP → V9 预算/多模型/进度取消 → V10 澄清与受控重规划 → V11 验证、修复与面试交付**。V11 已用 Java17 编译全部生产源码，并在隔离 MySQL8、真实 Spring 容器和本地模型 HTTP 替身上完成 9 项定向用例的通过验证，修复长期记忆创建时的代理字段访问问题；没有调用真实付费模型，未做全量生产验收。见 [V11 交付](docs/agent/version-11.md)、[实际验证记录](docs/agent/verification-v11-2026-11-05.md)、[面试讲解包](docs/agent/interview-v11.md)。V5 历史真实合成联调另见 [原验证记录](docs/agent/verification-v5-2026-11-03.md)。各版代码范围与未覆盖测试分别见 [版本路线](rag-production-to.md#11-分阶段实施计划) 和 [岗位差距](toAjob-distance.md)；面试项目验证与生产发布分别评价。
 
 ### 独立 RAG（Version 4，单轮可信问答）
