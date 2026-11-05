@@ -77,6 +77,34 @@ public class ChatAuditService {
         audit(tasks.require(session.taskId()),session.traceId(),"MEMORY_RECALL",session.userId(),null,"Memory selection recorded",metadata);
     }
 
+    public void validateDialogue(ChatSession session,boolean waiting) {
+        AgentTask task=tasks.require(session.taskId());
+        com.yu.agent.workflow.security.TenantIdentity.require(task.tenantId());
+        if(!task.userId().equals(session.userId()) || !"chat".equals(task.entrypoint()))throw BusinessException.of("FORBIDDEN","Chat owner required");
+        if(waiting ? task.status()!=TaskStatus.WAITING_INPUT : task.status()!=TaskStatus.PLANNING && task.status()!=TaskStatus.RUNNING)
+            throw BusinessException.of("RUN_NOT_ACTIVE","Dialogue task is not active");
+        var context=new com.yu.agent.workflow.tools.ToolContext(session.userId(),session.role(),task.id(),session.traceId(),task.tenantId());
+        if(memoryGuard!=null && memoryGuard.getIfAvailable()!=null)memoryGuard.getObject().validateTask(context);
+        if(knowledge!=null)knowledge.revalidateTask(context);
+    }
+
+    @org.springframework.transaction.annotation.Transactional(transactionManager="workflowTransactionManager")
+    public void resumeDialogue(ChatSession session) {
+        AgentTask task=tasks.require(session.taskId());
+        com.yu.agent.workflow.security.TenantIdentity.require(task.tenantId());
+        if(!task.userId().equals(session.userId()) || task.status()!=TaskStatus.WAITING_INPUT)throw BusinessException.of("RUN_NOT_ACTIVE","Dialogue is not waiting");
+        transition(task,TaskStatus.RUNNING,session.traceId(),session.userId());
+        audit(task,session.traceId(),"DIALOGUE_RESUMED",session.userId(),null,"Fresh identity and evidence checks required",Map.of());
+    }
+
+    public void pauseDialogue(ChatSession session,String field) {
+        AgentTask task=tasks.require(session.taskId());
+        if(task.status()!=TaskStatus.PLANNING && task.status()!=TaskStatus.RUNNING)throw BusinessException.of("RUN_NOT_ACTIVE","Dialogue task is not active");
+        task.resultMessage(null);
+        transition(task,TaskStatus.WAITING_INPUT,session.traceId(),session.userId());
+        audit(task,session.traceId(),"DIALOGUE_WAITING_INPUT",session.userId(),null,"Execution suspended for user input",Map.of("field",field));
+    }
+
     public void complete(ChatSession session, DeepSeekToolCallingService.ToolChatResult result) {
         AgentTask task = tasks.require(session.taskId());
         ensureRunning(task, session.traceId(), session.userId());
@@ -92,7 +120,7 @@ public class ChatAuditService {
         AgentTask task = tasks.require(session.taskId());
         if (!task.status().terminal()) {
             task.resultMessage(exception.getMessage() == null ? "Chat failed" : exception.getMessage());
-            if (task.status() == TaskStatus.PLANNING || task.status() == TaskStatus.RUNNING) {
+            if (task.status() == TaskStatus.PLANNING || task.status() == TaskStatus.RUNNING || task.status()==TaskStatus.WAITING_INPUT) {
                 transition(task, TaskStatus.FAILED, session.traceId(), session.userId());
             }
         }
@@ -154,6 +182,7 @@ public class ChatAuditService {
 
         private Listener(ChatSession session) {
             this.session = session;
+            this.nextSequence=tasks.require(session.taskId()).view().steps().stream().mapToInt(AgentStep::sequence).max().orElse(0)+1;
         }
 
         @Override

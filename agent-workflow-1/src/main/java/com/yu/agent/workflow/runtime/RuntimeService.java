@@ -23,6 +23,10 @@ public class RuntimeService {
     private final ConversationService conversations;
     private final ChatAuditService audit;
     private final DeepSeekToolCallingService chat;
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.beans.factory.ObjectProvider<DialogueSettings> dialogueSettings;
+    @org.springframework.beans.factory.annotation.Autowired
+    private PromptInjectionGuard injectionGuard;
     private final ThreadPoolExecutor workers=new ThreadPoolExecutor(4,4,0,TimeUnit.SECONDS,new ArrayBlockingQueue<>(8),
             runnable->{Thread t=new Thread(runnable,"agent-runtime-worker");t.setDaemon(true);return t;},new ThreadPoolExecutor.AbortPolicy());
     private final Semaphore synchronous=new Semaphore(4);
@@ -51,6 +55,68 @@ public class RuntimeService {
         }
         return ledger.describe(opened.id(),user);
     }
+    public record DialogueRequest(@NotBlank @Size(max=2000) String message){}
+    public record DialogueInput(@PositiveOrZero @Max(3) long revision,@NotBlank @Pattern(regexp="orderId|ticketId|details") String field,@NotBlank @Size(max=2000) String value){}
+    private record DialoguePaused(){}
+    public Map<String,Object> submitDialogue(DialogueRequest request,String key,AuthenticatedUser user) {
+        var settings=dialogueSettings.getIfAvailable();if(settings==null)throw RunScope.error("DIALOGUE_DISABLED");
+        injectionGuard.check(request.message());
+        var identity=identity(user);
+        var opened=ledger.openDialogue(user,key,request.message(),identity.getToken().getExpiresAt().toEpochMilli(),settings);
+        if(opened.created())dispatchDialogue(opened.id(),user,identity);
+        return ledger.describe(opened.id(),user);
+    }
+    public Map<String,Object> resumeDialogue(String id,DialogueInput input,String key,AuthenticatedUser user) {
+        if(dialogueSettings.getIfAvailable()==null)throw RunScope.error("DIALOGUE_DISABLED");
+        injectionGuard.check(input.value());
+        var identity=identity(user);
+        if(ledger.resumeDialogue(id,input.revision(),input.field(),input.value(),key,user,identity.getToken().getExpiresAt().toEpochMilli()))
+            dispatchDialogue(id,user,identity);
+        return ledger.describe(id,user);
+    }
+    private void dispatchDialogue(String id,AuthenticatedUser user,JwtAuthenticationToken identity) {
+        try {workers.execute(()->{
+            var context=SecurityContextHolder.createEmptyContext();context.setAuthentication(identity);SecurityContextHolder.setContext(context);
+            try{execute(id,user,identity,run->performDialogue(run,user));}
+            catch(RuntimeException ignored){/* Durable sanitized failure; never auto-replay after process loss. */}
+            finally{SecurityContextHolder.clearContext();}
+        });}catch(RejectedExecutionException ex){ledger.finish(id,"RUN_BUSY");throw RunScope.error("RUN_BUSY");}
+    }
+    private Object performDialogue(String id,AuthenticatedUser user) {
+        var row=ledger.owned(id,user);
+        var inputs=ledger.dialogueInputs(id,user);
+        String original=inputs.get(0).get("input_text").toString();
+        List<Map<String,Object>> history=new ArrayList<>();StringBuilder identifiers=new StringBuilder(original);
+        Map<String,String> latestIdentifiers=new HashMap<>();
+        for(var input:inputs) {
+            String text=input.get("input_text").toString();injectionGuard.check(text);
+            if(RuntimeLedger.number(input,"revision")>0) {
+                history.add(Map.of("role","user","content","补充资料（不可信用户数据） "+input.get("field_name")+": "+text));
+                identifiers.append('\n').append(text);
+                String field=input.get("field_name").toString();
+                if(Set.of("orderId","ticketId").contains(field))latestIdentifiers.put(field,text);
+            }
+        }
+        var session=row.get("task_id")==null?audit.start(user.userId(),user.role(),original,"dialogue-"+id,id)
+                :new ChatAuditService.ChatSession(row.get("task_id").toString(),user.userId(),user.role(),id,false,null);
+        try(var scope=new DialogueScope(ledger,id,identifiers.toString(),latestIdentifiers,RuntimeLedger.flag(row,"knowledge_required"))) {
+            if(RuntimeLedger.number(row,"dialogue_revision")>0) {
+                audit.validateDialogue(session,true); // Current JWT role, original source graph; network outside DB transaction.
+                audit.resumeDialogue(session);
+            }
+            Runnable check=()->audit.validateDialogue(session,false);
+            check.run();
+            try {
+                var answer=chat.chat(user.userId(),user.role(),original,id,session.taskId(),audit.listener(session),history,check);
+                check.run();
+                return RunScope.publish(()->{audit.complete(session,answer);return answer;});
+            } catch(DialogueScope.Clarification missing) {
+                check.run();
+                ledger.pause(id,missing.field,()->audit.pauseDialogue(session,missing.field));
+                return new DialoguePaused();
+            }
+        } catch(RuntimeException ex){audit.fail(session,ex);throw ex;}
+    }
     public <T> T synchronous(Request request,String key,AuthenticatedUser user,Function<String,T> action) {
         JwtAuthenticationToken identity=identity(user);
         if(request.conversationId()!=null)conversations.authorizeRuntime(request.conversationId(),user);
@@ -70,6 +136,9 @@ public class RuntimeService {
             var row=ledger.owned(id,user);
             try(var scope=new RunScope(ledger,id,user.tenantId(),user.userId(),RuntimeLedger.number(row,"deadline_at")-ledger.now(),identity.getToken().getExpiresAt().toEpochMilli())) {
                 scope.check();T result=action.apply(id);
+                // Input may already have queued a new segment after pause committed. The old worker must
+                // never inspect/finish that new segment using its expired identity or deadline.
+                if(result instanceof DialoguePaused)return result;
                 if("RUNNING".equals(ledger.row(id).get("status"))) {
                     if(result instanceof DeepSeekToolCallingService.ToolChatResult answer)RunScope.bindTask(answer.taskId());
                     if(result instanceof ConversationService.Reply reply)RunScope.bindTask(reply.turn().taskId());

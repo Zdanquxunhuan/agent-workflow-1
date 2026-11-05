@@ -4,6 +4,7 @@ public enum TaskStatus {
     CREATED,
     PLANNING,
     RUNNING,
+    WAITING_INPUT,
     WAITING_APPROVAL,
     WAITING_EXTERNAL,
     UNKNOWN_SIDE_EFFECT,

@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>售后助手 · 澄清与查询</title>
+<style>body{font:16px system-ui;max-width:850px;margin:32px auto;padding:0 20px;background:#f6f8fb;color:#182435}input,textarea,select{box-sizing:border-box;width:100%;padding:10px;margin:8px 0}button{padding:9px 16px;margin:4px}pre,article{white-space:pre-wrap;overflow-wrap:anywhere;background:white;padding:16px;border-radius:8px}label{display:block}#status{white-space:pre-wrap}</style>
+<h1>澄清与查询</h1><p>缺少信息时，助手会暂停并请你补充。此页面只查询；退款申请与主管审批使用既有业务流程。<a href="/conversation.html">返回会话</a></p>
+<label>访问令牌（仅保存在当前页面）<input id="token" type="password" autocomplete="off"></label>
+<button id="list">读取我的查询</button><select id="runs" aria-label="已有查询"><option value="">请选择</option></select>
+<button id="refresh">刷新并继续观察</button><button id="cancel">停止此查询</button><button id="new">新查询</button>
+<p id="status" role="status"></p><p id="usage"></p><article id="answer" aria-live="polite" hidden></article>
+<form id="form"><label><span id="prompt">你的售后问题</span><textarea id="message" maxlength="2000" required placeholder="帮我看看能不能退款"></textarea></label><button id="send">发送</button></form>
+<button id="retry" hidden>重试上次提交（不重复创建）</button>
+<details open><summary>查询过程与计划修订</summary><pre id="plans">尚未开始</pre></details>
+<script src="/dialogue.js" defer></script></html>

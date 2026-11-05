@@ -9,9 +9,10 @@ import java.util.Set;
 public final class TaskStateMachine {
     private static final Map<TaskStatus, Set<TaskStatus>> TRANSITIONS = Map.ofEntries(
             Map.entry(TaskStatus.CREATED, Set.of(TaskStatus.PLANNING, TaskStatus.CANCELLED)),
-            Map.entry(TaskStatus.PLANNING, Set.of(TaskStatus.RUNNING, TaskStatus.WAITING_APPROVAL, TaskStatus.FAILED, TaskStatus.CANCELLED)),
+            Map.entry(TaskStatus.PLANNING, Set.of(TaskStatus.RUNNING, TaskStatus.WAITING_INPUT, TaskStatus.WAITING_APPROVAL, TaskStatus.FAILED, TaskStatus.CANCELLED)),
+            Map.entry(TaskStatus.WAITING_INPUT, Set.of(TaskStatus.RUNNING, TaskStatus.FAILED, TaskStatus.CANCELLED)),
             Map.entry(TaskStatus.WAITING_APPROVAL, Set.of(TaskStatus.RUNNING, TaskStatus.CANCELLED)),
-            Map.entry(TaskStatus.RUNNING, Set.of(TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.CANCELLED, TaskStatus.RECOVERY_REQUIRED, TaskStatus.WAITING_EXTERNAL)),
+            Map.entry(TaskStatus.RUNNING, Set.of(TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.CANCELLED, TaskStatus.RECOVERY_REQUIRED, TaskStatus.WAITING_EXTERNAL, TaskStatus.WAITING_INPUT)),
             Map.entry(TaskStatus.WAITING_EXTERNAL, Set.of(TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.UNKNOWN_SIDE_EFFECT)),
             Map.entry(TaskStatus.UNKNOWN_SIDE_EFFECT, Set.of(TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.WAITING_EXTERNAL)),
             Map.entry(TaskStatus.RECOVERY_REQUIRED, Set.of(TaskStatus.RUNNING, TaskStatus.CANCELLED)),

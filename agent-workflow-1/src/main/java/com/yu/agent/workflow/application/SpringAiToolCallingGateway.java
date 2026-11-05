@@ -105,8 +105,9 @@ public class SpringAiToolCallingGateway implements ToolCallingGateway {
             metadata.put("gateway", "spring-ai");
             metadata.put("model", Objects.toString(response.getMetadata().getModel(), "unknown"));
             metadata.put("elapsedMs", (System.nanoTime() - started) / 1_000_000);
-            metadata.put("promptVersion", "agent-readonly-v5");
-            metadata.put("toolSchemaVersion", "readonly-v1");
+            boolean dialogue=com.yu.agent.workflow.runtime.DialogueScope.current()!=null;
+            metadata.put("promptVersion", dialogue?"agent-dialogue-v10":"agent-readonly-v5");
+            metadata.put("toolSchemaVersion", dialogue?"readonly-clarify-v10":"readonly-v1");
             var usage = response.getMetadata().getUsage();
             boolean known = usage != null && usage.getNativeUsage() != null
                     && usage.getPromptTokens() != null && usage.getCompletionTokens() != null

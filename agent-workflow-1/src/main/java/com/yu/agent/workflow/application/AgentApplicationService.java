@@ -32,6 +32,8 @@ import java.util.UUID;
 @Service
 public class AgentApplicationService {
     @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.beans.factory.ObjectProvider<com.yu.agent.workflow.runtime.RuntimeLedger> runtimeLedger;
+    @org.springframework.beans.factory.annotation.Autowired
     private org.springframework.beans.factory.ObjectProvider<com.yu.agent.workflow.memory.MemoryProvenanceGuard> memoryGuard;
     private static final Logger log = LoggerFactory.getLogger(AgentApplicationService.class);
 
@@ -174,6 +176,9 @@ public class AgentApplicationService {
         com.yu.agent.workflow.security.TenantIdentity.require(task.tenantId());
         if (!task.userId().equals(actor) && role != UserRole.ADMIN)
             throw BusinessException.of("FORBIDDEN", "Only the task owner can cancel it");
+        // Runtime owns the cancellation fence. A second task-only path could race with final publication.
+        if(runtimeLedger!=null && runtimeLedger.getIfAvailable()!=null && runtimeLedger.getObject().managesTask(taskId))
+            throw BusinessException.of("CONFLICT","Cancel this task through /api/v1/agent/runs/{runId}/cancel");
         synchronized (task) {
             if (task.status().terminal()) return authorizedView(task, currentReader(task.userId()));
             if (task.status() == TaskStatus.WAITING_EXTERNAL || task.status() == TaskStatus.UNKNOWN_SIDE_EFFECT) {

@@ -32,9 +32,16 @@ public class RuntimeLedger {
     public record Open(String id,boolean created){}
     public long now(){return jdbc.queryForObject("SELECT CAST(UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3))*1000 AS UNSIGNED)",Long.class);}
     public Open open(AuthenticatedUser user,String key,String conversation,Object request,long identityExpires) {
+        return open(user,key,conversation,request,identityExpires,null,null);
+    }
+    public Open openDialogue(AuthenticatedUser user,String key,String message,long identityExpires,DialogueSettings dialogue) {
+        if(message==null || message.isBlank() || message.length()>2000)throw RunScope.error("INVALID_ARGUMENT");
+        return open(user,key,null,Map.of("message",message),identityExpires,dialogue,message);
+    }
+    private Open open(AuthenticatedUser user,String key,String conversation,Object request,long identityExpires,DialogueSettings dialogue,String message) {
         if(key==null || !key.matches("[A-Za-z0-9_-]{1,80}") || !user.userId().matches("[A-Za-z0-9._@-]{1,200}"))throw RunScope.error("INVALID_ARGUMENT");
         if(!settings.primary.tenants().contains(user.tenantId()))throw RunScope.error("FORBIDDEN");
-        String entry=conversation==null?"chat":"conversation:"+conversation;
+        String entry=dialogue!=null?"dialogue":conversation==null?"chat":"conversation:"+conversation;
         String hash;
         try {hash=HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(json.writeValueAsBytes(request)));}
         catch(Exception ex){throw new IllegalArgumentException("Invalid runtime request");}
@@ -49,7 +56,7 @@ public class RuntimeLedger {
                 if(!digest.equals(existing.get(0).get("request_hash")))throw RunScope.error("IDEMPOTENCY_CONFLICT");
                 return new Open(existing.get(0).get("id").toString(),false);
             }
-            if(jdbc.queryForList("SELECT id FROM agent_runs WHERE tenant_id=? AND owner_id=? AND status IN ('QUEUED','RUNNING') AND deadline_at>? FOR UPDATE",
+            if(jdbc.queryForList("SELECT id FROM agent_runs WHERE tenant_id=? AND owner_id=? AND status IN ('QUEUED','RUNNING','WAITING_INPUT') AND deadline_at>? FOR UPDATE",
                     String.class,user.tenantId(),user.userId(),time).size()>=settings.maxActive)throw RunScope.error("RUN_BUSY");
             String id=UUID.randomUUID().toString();
             jdbc.update("INSERT INTO agent_runs(id,tenant_id,owner_id,entrypoint,request_key,request_hash,conversation_id,instance_id,status,created_at,deadline_at,budget_day,currency,max_cost_micros,max_tokens,max_attempts,max_tools) "
@@ -58,7 +65,15 @@ public class RuntimeLedger {
             var row=jdbc.queryForMap("SELECT * FROM agent_runs WHERE tenant_id=? AND owner_id=? AND entrypoint=? AND request_key=?",user.tenantId(),user.userId(),entry,key);
             if(!digest.equals(row.get("request_hash")))throw RunScope.error("IDEMPOTENCY_CONFLICT");
             boolean created=id.equals(row.get("id"));
-            if(created)eventInside(id,"queued",Map.of("runId",id),time);
+            if(created) {
+                if(dialogue!=null) {
+                    jdbc.update("UPDATE agent_runs SET dialogue_enabled=true,max_replans=?,max_clarifications=?,chain_expires_at=?,execution_remaining_ms=?,segment_opened_at=?,wait_seconds=? WHERE id=?",
+                            dialogue.maxReplans,dialogue.maxClarifications,time+dialogue.lifetimeSeconds*1000L,settings.seconds*1000L,time,dialogue.waitSeconds,id);
+                    jdbc.update("INSERT INTO agent_dialogue_inputs(run_id,revision,request_key,field_name,input_text,created_at) VALUES (?,0,?,'message',?,?)",id,key,message,time);
+                    eventInside(id,"plan_created",Map.of("version",1,"parentVersion",0,"reason","USER_REQUEST","next","DECIDE_READ_ONLY_OR_CLARIFY"),time);
+                }
+                eventInside(id,"queued",Map.of("runId",id),time);
+            }
             return new Open(row.get("id").toString(),created);
         });
     }
@@ -70,12 +85,14 @@ public class RuntimeLedger {
     public Map<String,Object> describe(String id,AuthenticatedUser user) {
         var r=owned(id,user);Map<String,Object> result=new LinkedHashMap<>();
         for(String key:List.of("id","conversation_id","task_id","status","cancel_requested","error_code","created_at","started_at","ended_at","deadline_at",
-                "currency","max_cost_micros","accounted_micros","reserved_micros","accounted_tokens","reserved_tokens","attempt_count","tool_count","fallback_used"))result.put(key,r.get(key));
+                "currency","max_cost_micros","accounted_micros","reserved_micros","accounted_tokens","reserved_tokens","attempt_count","tool_count","fallback_used",
+                "dialogue_enabled","dialogue_revision","plan_version","replan_count","max_replans","max_clarifications","clarification_field","chain_expires_at","execution_remaining_ms"))result.put(key,r.get(key));
+        if("WAITING_INPUT".equals(r.get("status")))result.put("question",DialogueScope.question(r.get("clarification_field").toString()));
         result.put("costMeaning","configured-price estimate; unknown usage consumes reservation");return result;
     }
     public List<Map<String,Object>> list(AuthenticatedUser user,boolean active) {
-        return jdbc.queryForList("SELECT id,conversation_id,task_id,status,cancel_requested,error_code,created_at,deadline_at,currency,accounted_micros FROM agent_runs WHERE tenant_id=? AND owner_id=? "
-                +(active?"AND status IN ('QUEUED','RUNNING') ":"")+"ORDER BY created_at DESC,id DESC LIMIT 50",user.tenantId(),user.userId());
+        return jdbc.queryForList("SELECT id,conversation_id,task_id,status,cancel_requested,error_code,created_at,deadline_at,currency,accounted_micros,dialogue_enabled FROM agent_runs WHERE tenant_id=? AND owner_id=? "
+                +(active?"AND status IN ('QUEUED','RUNNING','WAITING_INPUT') ":"")+"ORDER BY created_at DESC,id DESC LIMIT 50",user.tenantId(),user.userId());
     }
     public List<Map<String,Object>> attempts(String id,AuthenticatedUser user) {
         owned(id,user);
@@ -84,7 +101,7 @@ public class RuntimeLedger {
     public boolean claim(String id) {
         return tx.execute(s->{
             long time=now();
-            boolean ok=jdbc.update("UPDATE agent_runs SET status='RUNNING',started_at=? WHERE id=? AND status='QUEUED' AND cancel_requested=false AND deadline_at>?",time,id,time)==1;
+            boolean ok=jdbc.update("UPDATE agent_runs SET status='RUNNING',started_at=COALESCE(started_at,?) WHERE id=? AND status='QUEUED' AND cancel_requested=false AND deadline_at>?",time,id,time)==1;
             if(ok)eventInside(id,"started",Map.of(),time);return ok;
         });
     }
@@ -99,8 +116,13 @@ public class RuntimeLedger {
     public void cancel(String id,AuthenticatedUser user) {
         owned(id,user);
         tx.executeWithoutResult(s->{
-            if(jdbc.update("UPDATE agent_runs SET cancel_requested=true WHERE id=? AND status IN ('QUEUED','RUNNING') AND cancel_requested=false",id)==1)
+            var row=jdbc.queryForMap("SELECT * FROM agent_runs WHERE id=? FOR UPDATE",id);
+            if(jdbc.update("UPDATE agent_runs SET cancel_requested=true WHERE id=? AND status IN ('QUEUED','RUNNING','WAITING_INPUT') AND cancel_requested=false",id)==1)
                 eventInside(id,"cancel_requested",Map.of(),now());
+            if("WAITING_INPUT".equals(row.get("status"))) {
+                jdbc.update("UPDATE agent_runs SET status='CANCELLED',error_code='RUN_CANCELLED',ended_at=? WHERE id=?",now(),id);
+                eventInside(id,"terminal",Map.of("status","CANCELLED","code","RUN_CANCELLED"),now());
+            }
         });
     }
     public void cancelConversation(String conversation,String key,AuthenticatedUser user) {
@@ -110,6 +132,9 @@ public class RuntimeLedger {
     public void bindTask(String id,String task) {
         if(jdbc.update("UPDATE agent_runs r JOIN tasks t ON t.id=? AND t.tenant_id=r.tenant_id AND t.user_id=r.owner_id AND t.entrypoint='chat' SET r.task_id=? WHERE r.id=? AND r.status='RUNNING' AND (r.task_id IS NULL OR r.task_id=?)",task,task,id,task)!=1)
             throw RunScope.error("RUN_NOT_ACTIVE");
+    }
+    public boolean managesTask(String task) {
+        return !jdbc.queryForList("SELECT id FROM agent_runs WHERE task_id=? LIMIT 1",String.class,task).isEmpty();
     }
     public void tool(String id,String name) {
         tx.executeWithoutResult(s->{
@@ -125,6 +150,7 @@ public class RuntimeLedger {
             var snapshot=row(id);var wallet=wallet(snapshot); // Lock order is ALWAYS wallet -> run -> attempt.
             var r=jdbc.queryForMap("SELECT * FROM agent_runs WHERE id=? FOR UPDATE",id);validate(r,now());
             if(!model.tenants().contains(r.get("tenant_id")))throw RunScope.error("FORBIDDEN");
+            if(!settings.currency.equals(r.get("currency")))throw RunScope.error("RUN_CURRENCY_CHANGED");
             if(number(r,"attempt_count")>=number(r,"max_attempts"))throw RunScope.error("RUN_MODEL_LIMIT");
             if(fallback && flag(r,"fallback_used"))throw RunScope.error("RUN_FALLBACK_LIMIT");
             if(cost>number(r,"max_cost_micros")-number(r,"accounted_micros")-number(r,"reserved_micros")
@@ -175,7 +201,7 @@ public class RuntimeLedger {
     public boolean finish(String id,String code) {
         return tx.execute(s->{
             var r=jdbc.queryForMap("SELECT * FROM agent_runs WHERE id=? FOR UPDATE",id);long time=now();
-            if(!Set.of("RUNNING","QUEUED").contains(r.get("status")))return false;
+            if(!Set.of("RUNNING","QUEUED","WAITING_INPUT").contains(r.get("status")))return false;
             String actual=flag(r,"cancel_requested")?"RUN_CANCELLED":number(r,"deadline_at")<=time?"RUN_DEADLINE":code;
             if("OK".equals(actual) && (number(r,"reserved_micros")!=0 || number(r,"reserved_tokens")!=0))actual="RUN_ACCOUNTING_INCOMPLETE";
             if("OK".equals(actual) && (number(r,"accounted_micros")>number(r,"max_cost_micros") || number(r,"accounted_tokens")>number(r,"max_tokens")))actual="RUN_BUDGET_EXCEEDED";
@@ -218,9 +244,10 @@ public class RuntimeLedger {
     public void cleanupDone(String id){jdbc.update("UPDATE agent_runs SET cleanup_done=true WHERE id=?",id);}
     /** Never resume paid calls after a crash: close stale reservations conservatively as unknown usage. */
     public void reconcile() {
-        for(String id:jdbc.queryForList("SELECT id FROM agent_runs WHERE deadline_at<? AND (status IN ('RUNNING','QUEUED') OR reserved_tokens>0) ORDER BY deadline_at LIMIT 50",String.class,now())) {
+        for(String id:jdbc.queryForList("SELECT id FROM agent_runs WHERE deadline_at<? AND (status IN ('RUNNING','QUEUED','WAITING_INPUT') OR reserved_tokens>0) ORDER BY deadline_at LIMIT 50",String.class,now())) {
             tx.executeWithoutResult(s->{
                 var r=row(id);wallet(r);r=jdbc.queryForMap("SELECT * FROM agent_runs WHERE id=? FOR UPDATE",id);
+                if(number(r,"deadline_at")>now())return;
                 for(var a:jdbc.queryForList("SELECT * FROM agent_model_attempts WHERE run_id=? AND status='STARTED' FOR UPDATE",id)) {
                     long cost=number(a,"reserved_micros"),tokens=number(a,"reserved_input")+number(a,"reserved_output");
                     jdbc.update("UPDATE agent_model_attempts SET status='FAILED',code='RUN_INTERRUPTED',usage_source='unknown',accounted_micros=?,ended_at=? WHERE id=?",cost,now(),a.get("id"));
@@ -228,8 +255,90 @@ public class RuntimeLedger {
                     walletDelta(r,cost,-cost);
                 }
             });
-            finish(id,"RUN_INTERRUPTED");
+            // Recheck after obtaining the lock: a waiting run might have resumed since the scan.
+            tx.executeWithoutResult(s->{
+                var r=jdbc.queryForMap("SELECT * FROM agent_runs WHERE id=? FOR UPDATE",id);
+                if(number(r,"deadline_at")<=now() && Set.of("RUNNING","QUEUED","WAITING_INPUT").contains(r.get("status"))) {
+                    String code=flag(r,"cancel_requested")?"RUN_CANCELLED":"RUN_DEADLINE";
+                    String state=flag(r,"cancel_requested")?"CANCELLED":"EXPIRED";
+                    jdbc.update("UPDATE agent_runs SET status=?,error_code=?,ended_at=? WHERE id=?",state,code,now(),id);
+                    eventInside(id,"terminal",Map.of("status",state,"code",code),now());
+                }
+            });
         }
+    }
+
+    public void planStep(String id,String decision,String tool,String reason) {
+        tx.executeWithoutResult(s->{
+            var r=jdbc.queryForMap("SELECT * FROM agent_runs WHERE id=? FOR UPDATE",id);validate(r,now());
+            if(!flag(r,"dialogue_enabled"))throw RunScope.error("DIALOGUE_REQUIRED");
+            eventInside(id,"plan_step",Map.of("version",number(r,"plan_version"),"decision",decision,"tool",tool,"reason",reason),now());
+        });
+    }
+    public void replan(String id,String tool,String reason) {
+        tx.executeWithoutResult(s->{
+            var r=jdbc.queryForMap("SELECT * FROM agent_runs WHERE id=? FOR UPDATE",id);validate(r,now());
+            if(!flag(r,"dialogue_enabled") || number(r,"replan_count")>=number(r,"max_replans"))throw RunScope.error("DIALOGUE_REPLAN_LIMIT");
+            long version=number(r,"plan_version");
+            jdbc.update("UPDATE agent_runs SET replan_count=replan_count+1,plan_version=plan_version+1,knowledge_required=(knowledge_required OR ?) WHERE id=?","NO_EVIDENCE".equals(reason),id);
+            eventInside(id,"plan_revised",Map.of("version",version+1,"parentVersion",version,"reason",reason,"failedTool",tool,
+                    "next","NO_EVIDENCE".equals(reason)?"REVISE_QUERY_OR_CLARIFY":"CLARIFY_IDENTIFIER"),now());
+        });
+    }
+    public void pause(String id,String field,Runnable suspendTask) {
+        DialogueScope.question(field);
+        tx.executeWithoutResult(s->{
+            var r=jdbc.queryForMap("SELECT * FROM agent_runs WHERE id=? FOR UPDATE",id);long time=now();validate(r,time);
+            if(!flag(r,"dialogue_enabled") || number(r,"dialogue_revision")>=number(r,"max_clarifications"))throw RunScope.error("DIALOGUE_CLARIFICATION_LIMIT");
+            if(number(r,"reserved_tokens")!=0 || number(r,"reserved_micros")!=0)throw RunScope.error("RUN_ACCOUNTING_INCOMPLETE");
+            suspendTask.run(); // Task WAITING_INPUT and run WAITING_INPUT commit atomically, no network here.
+            time=now();validate(r,time);
+            long remaining=number(r,"execution_remaining_ms")-Math.max(0,time-number(r,"segment_opened_at"));
+            long waitEnd=Math.min(number(r,"chain_expires_at"),time+number(r,"wait_seconds")*1000L);
+            if(remaining<=0 || waitEnd<=time)throw RunScope.error("RUN_DEADLINE");
+            jdbc.update("UPDATE agent_runs SET status='WAITING_INPUT',clarification_field=?,deadline_at=?,execution_remaining_ms=? WHERE id=?",field,waitEnd,remaining,id);
+            eventInside(id,"clarification_required",Map.of("version",number(r,"plan_version"),"revision",number(r,"dialogue_revision"),"decision","CLARIFY","reason","MISSING_INFORMATION","field",field),time);
+        });
+    }
+    public boolean resumeDialogue(String id,long revision,String field,String value,String key,AuthenticatedUser user,long identityExpires) {
+        if(key==null || !key.matches("[A-Za-z0-9_-]{1,80}") || value==null || value.isBlank() || value.length()>2000)
+            throw RunScope.error("INVALID_ARGUMENT");
+        DialogueScope.question(field);
+        if(!"details".equals(field) && !value.matches("[A-Za-z0-9_-]{1,80}"))throw RunScope.error("INVALID_ARGUMENT");
+        owned(id,user);
+        return tx.execute(s->{
+            var r=jdbc.queryForMap("SELECT * FROM agent_runs WHERE id=? FOR UPDATE",id);
+            if(!flag(r,"dialogue_enabled"))throw RunScope.error("DIALOGUE_REQUIRED");
+            var existing=jdbc.queryForList("SELECT * FROM agent_dialogue_inputs WHERE run_id=? AND request_key=?",id,key);
+            if(!existing.isEmpty()) {
+                var old=existing.get(0);
+                if(number(old,"revision")!=revision+1 || !field.equals(old.get("field_name")) || !value.equals(old.get("input_text")))
+                    throw RunScope.error("IDEMPOTENCY_CONFLICT");
+                return false;
+            }
+            long time=now();
+            if(!"WAITING_INPUT".equals(r.get("status")) || flag(r,"cancel_requested") || number(r,"dialogue_revision")!=revision
+                    || !field.equals(r.get("clarification_field")))throw RunScope.error("CONFLICT");
+            if(number(r,"deadline_at")<=time || number(r,"chain_expires_at")<=time)throw RunScope.error("RUN_DEADLINE");
+            if(identityExpires<=time+1000)throw RunScope.error("RUN_IDENTITY_EXPIRED");
+            if(!settings.primary.tenants().contains(user.tenantId()))throw RunScope.error("FORBIDDEN");
+            if(!settings.currency.equals(r.get("currency")))throw RunScope.error("RUN_CURRENCY_CHANGED");
+            long end=Math.min(Math.min(time+number(r,"execution_remaining_ms"),number(r,"chain_expires_at")),identityExpires);
+            if(end<=time+1000)throw RunScope.error("RUN_DEADLINE");
+            jdbc.update("INSERT INTO agent_dialogue_inputs(run_id,revision,request_key,field_name,input_text,created_at) VALUES (?,?,?,?,?,?)",id,revision+1,key,field,value,time);
+            jdbc.update("UPDATE agent_runs SET status='QUEUED',dialogue_revision=dialogue_revision+1,plan_version=plan_version+1,clarification_field=NULL,deadline_at=?,segment_opened_at=?,instance_id=? WHERE id=?",end,time,instance,id);
+            eventInside(id,"plan_revised",Map.of("version",number(r,"plan_version")+1,"parentVersion",number(r,"plan_version"),"reason","USER_INPUT","next","REAUTHORIZE_AND_QUERY_FRESH"),time);
+            eventInside(id,"queued",Map.of("revision",revision+1),time);
+            return true;
+        });
+    }
+    public List<Map<String,Object>> dialogueInputs(String id,AuthenticatedUser user) {
+        if(!flag(owned(id,user),"dialogue_enabled"))throw RunScope.error("DIALOGUE_REQUIRED");
+        return jdbc.queryForList("SELECT revision,field_name,input_text FROM agent_dialogue_inputs WHERE run_id=? ORDER BY revision",id);
+    }
+    public List<Map<String,Object>> plans(String id,AuthenticatedUser user) {
+        if(!flag(owned(id,user),"dialogue_enabled"))throw RunScope.error("DIALOGUE_REQUIRED");
+        return jdbc.queryForList("SELECT id,event_type,payload_json,created_at FROM agent_run_events WHERE run_id=? AND event_type IN ('plan_created','plan_revised','plan_step','clarification_required','terminal') ORDER BY id LIMIT 200",id);
     }
     public static long number(Map<String,Object> row,String key){return ((Number)row.get(key)).longValue();}
     public static boolean flag(Map<String,Object> row,String key){Object value=row.get(key);return Boolean.TRUE.equals(value) || value instanceof Number n && n.intValue()!=0;}

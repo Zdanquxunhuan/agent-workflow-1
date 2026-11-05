@@ -36,6 +36,10 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> business(BusinessException ex, HttpServletRequest request) {
         HttpStatus status = switch (ex.code()) {
+            case "DIALOGUE_REPLAN_LIMIT", "DIALOGUE_CLARIFICATION_LIMIT" -> HttpStatus.TOO_MANY_REQUESTS;
+            case "DIALOGUE_REPEATED_ACTION", "DIALOGUE_REQUIRED", "RUN_CURRENCY_CHANGED" -> HttpStatus.CONFLICT;
+            case "DIALOGUE_INVALID_DECISION" -> HttpStatus.BAD_GATEWAY;
+            case "DIALOGUE_DISABLED" -> HttpStatus.SERVICE_UNAVAILABLE;
             case "UNAUTHORIZED" -> HttpStatus.UNAUTHORIZED;
             case "RUN_IDENTITY_EXPIRED" -> HttpStatus.UNAUTHORIZED;
             case "RUN_BUSY", "RUN_BUDGET_EXCEEDED", "DAILY_BUDGET_EXCEEDED", "RUN_MODEL_LIMIT", "RUN_TOOL_LIMIT", "RUN_FALLBACK_LIMIT" -> HttpStatus.TOO_MANY_REQUESTS;
