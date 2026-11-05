@@ -86,8 +86,7 @@ public class MemoryService {
         });
     }
     private void quota(String tenant,String owner){
-        Long count=store.jdbc.queryForObject("SELECT COUNT(*) FROM long_term_memories WHERE tenant_id=? AND owner_id=? AND state IN ('ACTIVE','CANDIDATE') AND expires_at>?",Long.class,tenant,owner,MemoryStore.now());
-        if(count!=null && count>=100) throw BusinessException.of("MEMORY_QUOTA","Memory limit reached; forget unused memories");
+        if(store.activeCount(tenant,owner)>=100) throw BusinessException.of("MEMORY_QUOTA","Memory limit reached; forget unused memories");
     }
     public Metadata change(String id,long revision,String action,String content,int days,AuthenticatedUser u){
         identity(u);var snapshot=store.owned(id,u.tenantId(),u.userId());
@@ -121,12 +120,12 @@ public class MemoryService {
         }
     }
     private boolean ownerOptedIn(String tenant,String owner){
-        return !store.jdbc.queryForList("SELECT owner_id FROM memory_owners WHERE tenant_id=? AND owner_id=? AND auto_extract=true",tenant,owner).isEmpty();
+        return store.automaticExtraction(tenant,owner);
     }
     public Map<String,Object> settings(AuthenticatedUser u){identity(u);return Map.of("automaticExtractionAvailable",autoExtract,"automaticExtractionEnabled",ownerOptedIn(u.tenantId(),u.userId()));}
     public void settings(AuthenticatedUser u,boolean enabled){
         identity(u);store.transaction(() -> {store.lockOwner(u.tenantId(),u.userId());
-            store.jdbc.update("UPDATE memory_owners SET auto_extract=? WHERE tenant_id=? AND owner_id=?",enabled,u.tenantId(),u.userId());return null;});
+            store.automaticExtraction(u.tenantId(),u.userId(),enabled);return null;});
     }
     private String enqueueExtraction(AgentTask task){
         return enqueueExtraction(task,false);
@@ -134,9 +133,8 @@ public class MemoryService {
     private String enqueueExtraction(AgentTask task,boolean automatic){
         return store.transaction(() -> {
             store.lockOwner(task.tenantId(),task.userId());String id="extract-"+task.id();
-            if(!store.jdbc.queryForList("SELECT id FROM memory_jobs WHERE id=?",id).isEmpty())return id;
-            Long count=store.jdbc.queryForObject("SELECT COUNT(*) FROM memory_jobs WHERE tenant_id=? AND owner_id=? AND kind='EXTRACT' AND created_at>?",Long.class,task.tenantId(),task.userId(),MemoryStore.now()-86400);
-            if(count!=null && count>=20){
+            if(store.jobExists(id))return id;
+            if(store.recentExtractions(task.tenantId(),task.userId())>=20){
                 if(automatic)return "budget_exhausted";
                 throw BusinessException.of("MEMORY_QUOTA","Daily extraction budget exhausted");
             }
@@ -151,7 +149,7 @@ public class MemoryService {
         String content="历史请求："+clip(task.request(),350)+"\n历史记录："+clip(task.view().resultMessage(),450)+"\n这是历史摘要，当前业务状态和政策必须重新查询。";
         store.transaction(() -> {
             // Match task-success lock order before the source FK is inserted.
-            store.jdbc.queryForList("SELECT id FROM tasks WHERE id=? FOR SHARE",task.id());
+            store.lockSource(task.id());
             store.lockOwner(job.tenant(),job.owner());
             if(store.slot(job.tenant(),job.owner(),"TASK_SUMMARY",task.id())!=null)return null; // Includes forgotten tombstones.
             quota(job.tenant(),job.owner());long now=MemoryStore.now();
@@ -234,6 +232,6 @@ public class MemoryService {
         var task=tasks.require(m.sourceTaskId());
         if(!task.tenantId().equals(u.tenantId()) || !task.userId().equals(u.userId()))throw BusinessException.of("FORBIDDEN","Source owner required");
         knowledge.renewTaskAccess(new ToolContext(u.userId(),u.role(),task.id(),"memory-reauthorize",u.tenantId()));
-        store.jdbc.update("INSERT INTO memory_events VALUES (?,?,?,?,?)",UUID.randomUUID().toString(),m.id(),m.revision(),"SOURCE_REAUTHORIZED",MemoryStore.now());
+        store.sourceReauthorized(m);
     }
 }

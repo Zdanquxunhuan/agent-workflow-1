@@ -1,6 +1,6 @@
 # V10 面试演示与部署演练手册
 
-2026-11-05：这是待执行手册，尚无本轮演示、测试或部署通过记录。使用合成订单、sandbox 网关、独立的申请人与主管账号。开发者本轮未编写自动化测试，也未执行以下步骤。
+2026-11-05 更新：V11 已通过定向测试验证查询/澄清与审批退款等关键阶段，见 [验证记录](verification-v11-2026-11-05.md)。这些阶段由独立测试场景验证，不是一段连续的浏览器演示或生产部署验收。以下人工演示仍待项目作者执行；使用合成订单、sandbox 网关、独立的申请人与主管账号。
 
 ## 一条主线，约 8–10 分钟
 
@@ -49,3 +49,15 @@
 ## 演示记录模板
 
 记录日期/提交 SHA、环境与身份、query runId/taskId、writeTaskId、计划版本及终止原因、每次调用/用量、累计估算费用、请求至待补/最终答案的耗时、写入前后退款记录数量。每个条目只填实际观测；当前均为待采集。日志/截图不要带访问令牌、密钥、个人信息或未经授权的资料正文。
+
+## V11 已有证据映射
+
+| 演示阶段 | 本地实际证据 |
+| --- | --- |
+| 缺参→补充→引用答案 | clarificationResumesSameRunAndTaskWithoutResettingBudget；同 run/task、预算累计及重复输入幂等 |
+| 无结果后有限调整 | emptyKnowledgeAllowsOneRevisionButRepeatedActionStops；计划修订及重复查询停止 |
+| 显式偏好与遗忘 | conversationUsesConfirmedPreferenceAndForgettingRevokesHistory；修复后复验通过 |
+| 申请→独立审批→结果确认→幂等 | refundRequiresIndependentApprovalAndConfirmsOnlyOnceInSandbox；sandbox，非真实支付平台 |
+| 失败停止 | 源撤权、预算耗尽、并发恢复/取消场景；真实 JWT/事务，模型/RAG HTTP 替身 |
+
+机器报告中保存各场景 run/task 和单次观测；未录制浏览器视频，未执行上述三个部署故障演练，不能将计划写成已完成。

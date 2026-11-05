@@ -1,0 +1,461 @@
+{
+  "date": "2026-11-05",
+  "java": "17.0.12",
+  "springBoot": "3.5.16",
+  "springAi": "1.1.2",
+  "mysql": "8.0.46",
+  "migration": "fresh isolated schema V1 through V12",
+  "realModelCalls": 0,
+  "modelUsageMeaning": "synthetic local HTTP fixture usage, not real provider tokens or invoices",
+  "initial": [
+    {
+      "name": "normalQueryUsesRealSdkJwtDatabaseAndVerifiedCitations",
+      "seconds": 15.893,
+      "outcome": "passed"
+    },
+    {
+      "name": "clarificationResumesSameRunAndTaskWithoutResettingBudget",
+      "seconds": 14.157,
+      "outcome": "passed"
+    },
+    {
+      "name": "emptyKnowledgeAllowsOneRevisionButRepeatedActionStops",
+      "seconds": 18.668,
+      "outcome": "passed"
+    },
+    {
+      "name": "sourceRevocationStopsResumeBeforeAnotherModelCall",
+      "seconds": 9.359,
+      "outcome": "passed"
+    },
+    {
+      "name": "budgetReservationAndUnknownSettlementAreDurableAndBounded",
+      "seconds": 8.591,
+      "outcome": "passed"
+    },
+    {
+      "name": "concurrentResumeAndCancelCannotBeOverwrittenByOldPausedWorker",
+      "seconds": 6.95,
+      "outcome": "passed"
+    },
+    {
+      "name": "conversationUsesConfirmedPreferenceAndForgettingRevokesHistory",
+      "seconds": 0.245,
+      "outcome": "failed"
+    },
+    {
+      "name": "mcpGrantRevocationInvalidatesStoredAnswerWithoutCallingModel",
+      "seconds": 8.617,
+      "outcome": "passed"
+    }
+  ],
+  "targetedRecheck": [
+    {
+      "name": "conversationUsesConfirmedPreferenceAndForgettingRevokesHistory",
+      "seconds": 11.818,
+      "outcome": "passed"
+    },
+    {
+      "name": "refundRequiresIndependentApprovalAndConfirmsOnlyOnceInSandbox",
+      "seconds": 5.088,
+      "outcome": "passed"
+    }
+  ],
+  "distinctFinalCases": [
+    {
+      "name": "normalQueryUsesRealSdkJwtDatabaseAndVerifiedCitations",
+      "seconds": 15.893,
+      "outcome": "passed"
+    },
+    {
+      "name": "clarificationResumesSameRunAndTaskWithoutResettingBudget",
+      "seconds": 14.157,
+      "outcome": "passed"
+    },
+    {
+      "name": "emptyKnowledgeAllowsOneRevisionButRepeatedActionStops",
+      "seconds": 18.668,
+      "outcome": "passed"
+    },
+    {
+      "name": "sourceRevocationStopsResumeBeforeAnotherModelCall",
+      "seconds": 9.359,
+      "outcome": "passed"
+    },
+    {
+      "name": "budgetReservationAndUnknownSettlementAreDurableAndBounded",
+      "seconds": 8.591,
+      "outcome": "passed"
+    },
+    {
+      "name": "concurrentResumeAndCancelCannotBeOverwrittenByOldPausedWorker",
+      "seconds": 6.95,
+      "outcome": "passed"
+    },
+    {
+      "name": "conversationUsesConfirmedPreferenceAndForgettingRevokesHistory",
+      "seconds": 11.818,
+      "outcome": "passed"
+    },
+    {
+      "name": "mcpGrantRevocationInvalidatesStoredAnswerWithoutCallingModel",
+      "seconds": 8.617,
+      "outcome": "passed"
+    },
+    {
+      "name": "refundRequiresIndependentApprovalAndConfirmsOnlyOnceInSandbox",
+      "seconds": 5.088,
+      "outcome": "passed"
+    }
+  ],
+  "scenarios": [
+    {
+      "scenario": "normal_query",
+      "elapsedMs": 15694,
+      "run": {
+        "id": "6051c460-d5b8-41a3-b894-3933181fbc7f",
+        "conversation_id": null,
+        "task_id": "f4b6bef2-61a5-42a6-bf16-69bffd7f3222",
+        "status": "SUCCEEDED",
+        "cancel_requested": false,
+        "error_code": null,
+        "created_at": 1793845674829,
+        "started_at": 1793845675526,
+        "ended_at": 1793845689898,
+        "deadline_at": 1793845734829,
+        "currency": "USD",
+        "max_cost_micros": 1000000,
+        "accounted_micros": 360,
+        "reserved_micros": 0,
+        "accounted_tokens": 360,
+        "reserved_tokens": 0,
+        "attempt_count": 3,
+        "tool_count": 2,
+        "fallback_used": false,
+        "dialogue_enabled": true,
+        "dialogue_revision": 0,
+        "plan_version": 1,
+        "replan_count": 0,
+        "max_replans": 2,
+        "max_clarifications": 3,
+        "clarification_field": null,
+        "chain_expires_at": 1793847474829,
+        "execution_remaining_ms": 60000,
+        "costMeaning": "configured-price estimate; unknown usage consumes reservation"
+      },
+      "stubModelCalls": 3,
+      "realProviderCalls": 0,
+      "attempts": [
+        {
+          "usage_source": "provider",
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "accounted_micros": 120,
+          "status": "COMPLETED"
+        },
+        {
+          "usage_source": "provider",
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "accounted_micros": 120,
+          "status": "COMPLETED"
+        },
+        {
+          "usage_source": "provider",
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "accounted_micros": 120,
+          "status": "COMPLETED"
+        }
+      ]
+    },
+    {
+      "scenario": "clarification_resume",
+      "elapsedMs": 14140,
+      "run": {
+        "id": "d4c57197-aaaf-412a-9e71-ca3864580cfc",
+        "conversation_id": null,
+        "task_id": "763b3ebf-c9e6-4273-9198-731aac4b0f7c",
+        "status": "SUCCEEDED",
+        "cancel_requested": false,
+        "error_code": null,
+        "created_at": 1793845690307,
+        "started_at": 1793845690661,
+        "ended_at": 1793845703952,
+        "deadline_at": 1793845750774,
+        "currency": "USD",
+        "max_cost_micros": 1000000,
+        "accounted_micros": 480,
+        "reserved_micros": 0,
+        "accounted_tokens": 480,
+        "reserved_tokens": 0,
+        "attempt_count": 4,
+        "tool_count": 2,
+        "fallback_used": false,
+        "dialogue_enabled": true,
+        "dialogue_revision": 1,
+        "plan_version": 2,
+        "replan_count": 0,
+        "max_replans": 2,
+        "max_clarifications": 3,
+        "clarification_field": null,
+        "chain_expires_at": 1793847490307,
+        "execution_remaining_ms": 57064,
+        "costMeaning": "configured-price estimate; unknown usage consumes reservation"
+      },
+      "stubModelCalls": 4,
+      "realProviderCalls": 0,
+      "attempts": [
+        {
+          "usage_source": "provider",
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "accounted_micros": 120,
+          "status": "COMPLETED"
+        },
+        {
+          "usage_source": "provider",
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "accounted_micros": 120,
+          "status": "COMPLETED"
+        },
+        {
+          "usage_source": "provider",
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "accounted_micros": 120,
+          "status": "COMPLETED"
+        },
+        {
+          "usage_source": "provider",
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "accounted_micros": 120,
+          "status": "COMPLETED"
+        }
+      ]
+    },
+    {
+      "scenario": "bounded_replan",
+      "elapsedMs": 11002,
+      "run": {
+        "id": "17dac4b0-3337-4801-a88c-35a294d95098",
+        "conversation_id": null,
+        "task_id": "64969bb5-b590-473d-a1f7-14a03d8d2b45",
+        "status": "SUCCEEDED",
+        "cancel_requested": false,
+        "error_code": null,
+        "created_at": 1793845704461,
+        "started_at": 1793845704822,
+        "ended_at": 1793845715202,
+        "deadline_at": 1793845764461,
+        "currency": "USD",
+        "max_cost_micros": 1000000,
+        "accounted_micros": 360,
+        "reserved_micros": 0,
+        "accounted_tokens": 360,
+        "reserved_tokens": 0,
+        "attempt_count": 3,
+        "tool_count": 2,
+        "fallback_used": false,
+        "dialogue_enabled": true,
+        "dialogue_revision": 0,
+        "plan_version": 2,
+        "replan_count": 1,
+        "max_replans": 2,
+        "max_clarifications": 3,
+        "clarification_field": null,
+        "chain_expires_at": 1793847504461,
+        "execution_remaining_ms": 60000,
+        "costMeaning": "configured-price estimate; unknown usage consumes reservation"
+      },
+      "stubModelCalls": 3,
+      "realProviderCalls": 0,
+      "attempts": [
+        {
+          "usage_source": "provider",
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "accounted_micros": 120,
+          "status": "COMPLETED"
+        },
+        {
+          "usage_source": "provider",
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "accounted_micros": 120,
+          "status": "COMPLETED"
+        },
+        {
+          "usage_source": "provider",
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "accounted_micros": 120,
+          "status": "COMPLETED"
+        }
+      ]
+    },
+    {
+      "scenario": "source_revocation",
+      "elapsedMs": 9346,
+      "run": {
+        "id": "bd4f197d-38ea-4232-97d9-0629d4b1ac51",
+        "conversation_id": null,
+        "task_id": "5c71bdc9-a7ce-4203-831f-f15d43585a01",
+        "status": "FAILED",
+        "cancel_requested": false,
+        "error_code": "RAG_ACCESS_DENIED",
+        "created_at": 1793845723133,
+        "started_at": 1793845723425,
+        "ended_at": 1793845732113,
+        "deadline_at": 1793845783523,
+        "currency": "USD",
+        "max_cost_micros": 1000000,
+        "accounted_micros": 240,
+        "reserved_micros": 0,
+        "accounted_tokens": 240,
+        "reserved_tokens": 0,
+        "attempt_count": 2,
+        "tool_count": 1,
+        "fallback_used": false,
+        "dialogue_enabled": true,
+        "dialogue_revision": 1,
+        "plan_version": 2,
+        "replan_count": 0,
+        "max_replans": 2,
+        "max_clarifications": 3,
+        "clarification_field": null,
+        "chain_expires_at": 1793847523133,
+        "execution_remaining_ms": 52943,
+        "costMeaning": "configured-price estimate; unknown usage consumes reservation"
+      },
+      "stubModelCalls": 2,
+      "realProviderCalls": 0,
+      "attempts": [
+        {
+          "usage_source": "provider",
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "accounted_micros": 120,
+          "status": "COMPLETED"
+        },
+        {
+          "usage_source": "provider",
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "accounted_micros": 120,
+          "status": "COMPLETED"
+        }
+      ]
+    },
+    {
+      "scenario": "budget_exhaustion",
+      "elapsedMs": 6592,
+      "run": {
+        "id": "50f6a6a8-3b78-4e40-b81c-8228075b010e",
+        "conversation_id": null,
+        "task_id": "08278249-3fb5-4734-9b22-e88cd56bc3cd",
+        "status": "FAILED",
+        "cancel_requested": false,
+        "error_code": "RUN_MODEL_LIMIT",
+        "created_at": 1793845732491,
+        "started_at": 1793845732888,
+        "ended_at": 1793845738707,
+        "deadline_at": 1793845793046,
+        "currency": "USD",
+        "max_cost_micros": 1000000,
+        "accounted_micros": 120,
+        "reserved_micros": 0,
+        "accounted_tokens": 120,
+        "reserved_tokens": 0,
+        "attempt_count": 1,
+        "tool_count": 0,
+        "fallback_used": false,
+        "dialogue_enabled": true,
+        "dialogue_revision": 1,
+        "plan_version": 2,
+        "replan_count": 0,
+        "max_replans": 2,
+        "max_clarifications": 3,
+        "clarification_field": null,
+        "chain_expires_at": 1793847532491,
+        "execution_remaining_ms": 56547,
+        "costMeaning": "configured-price estimate; unknown usage consumes reservation"
+      },
+      "stubModelCalls": 1,
+      "realProviderCalls": 0,
+      "attempts": [
+        {
+          "usage_source": "provider",
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "accounted_micros": 120,
+          "status": "COMPLETED"
+        }
+      ]
+    },
+    {
+      "scenario": "resume_cancel_race",
+      "elapsedMs": 6938,
+      "run": {
+        "id": "712655fc-76fe-417d-aa5a-c3643bf14116",
+        "conversation_id": null,
+        "task_id": "1cbab993-146e-45d6-88ac-d844028fd770",
+        "status": "CANCELLED",
+        "cancel_requested": true,
+        "error_code": "RUN_CANCELLED",
+        "created_at": 1793845741089,
+        "started_at": 1793845741382,
+        "ended_at": 1793845747708,
+        "deadline_at": 1793845801549,
+        "currency": "USD",
+        "max_cost_micros": 1000000,
+        "accounted_micros": 240,
+        "reserved_micros": 0,
+        "accounted_tokens": 240,
+        "reserved_tokens": 0,
+        "attempt_count": 2,
+        "tool_count": 0,
+        "fallback_used": false,
+        "dialogue_enabled": true,
+        "dialogue_revision": 1,
+        "plan_version": 2,
+        "replan_count": 0,
+        "max_replans": 2,
+        "max_clarifications": 3,
+        "clarification_field": null,
+        "chain_expires_at": 1793847541089,
+        "execution_remaining_ms": 56927,
+        "costMeaning": "configured-price estimate; unknown usage consumes reservation"
+      },
+      "stubModelCalls": 2,
+      "realProviderCalls": 0,
+      "attempts": [
+        {
+          "usage_source": "provider",
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "accounted_micros": 120,
+          "status": "COMPLETED"
+        },
+        {
+          "usage_source": "provider",
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "accounted_micros": 120,
+          "status": "COMPLETED"
+        }
+      ]
+    },
+    {
+      "successfulRefundRows": 1,
+      "scenario": "sandbox_refund",
+      "realProviderCalls": 0,
+      "stubPlannerCalls": 1,
+      "taskId": "1f32e8d9-f8eb-4b9b-b40a-226a0a03faff",
+      "selfApproval": "denied",
+      "elapsedMs": 5080
+    }
+  ]
+}

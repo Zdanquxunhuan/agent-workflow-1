@@ -14,7 +14,7 @@ import java.util.function.Supplier;
 @Repository
 @ConditionalOnProperty(name="agent.memory.enabled",havingValue="true")
 public class MemoryStore {
-    final JdbcTemplate jdbc;
+    private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
     private static final RowMapper<MemoryRecord> ROW = (r,n) -> new MemoryRecord(r.getString("id"),r.getString("tenant_id"),
             r.getString("owner_id"),r.getString("kind"),r.getString("slot"),r.getString("content"),r.getString("source_task_id"),
@@ -24,6 +24,24 @@ public class MemoryStore {
     }
     public <T> T transaction(Supplier<T> work) { return tx.execute(status -> work.get()); }
     public static long now() { return Instant.now().getEpochSecond(); }
+    // Invoke repository methods through the Spring proxy; never read fields on its CGLIB shell.
+    public long activeCount(String tenant,String owner) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM long_term_memories WHERE tenant_id=? AND owner_id=? AND state IN ('ACTIVE','CANDIDATE') AND expires_at>?",Long.class,tenant,owner,now());
+    }
+    public boolean automaticExtraction(String tenant,String owner) {
+        return !jdbc.queryForList("SELECT owner_id FROM memory_owners WHERE tenant_id=? AND owner_id=? AND auto_extract=true",tenant,owner).isEmpty();
+    }
+    public void automaticExtraction(String tenant,String owner,boolean enabled) {
+        jdbc.update("UPDATE memory_owners SET auto_extract=? WHERE tenant_id=? AND owner_id=?",enabled,tenant,owner);
+    }
+    public boolean jobExists(String id) {return !jdbc.queryForList("SELECT id FROM memory_jobs WHERE id=?",id).isEmpty();}
+    public long recentExtractions(String tenant,String owner) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM memory_jobs WHERE tenant_id=? AND owner_id=? AND kind='EXTRACT' AND created_at>?",Long.class,tenant,owner,now()-86400);
+    }
+    public void lockSource(String task) {jdbc.queryForList("SELECT id FROM tasks WHERE id=? FOR SHARE",task);}
+    public void sourceReauthorized(MemoryRecord memory) {
+        jdbc.update("INSERT INTO memory_events VALUES (?,?,?,?,?)",UUID.randomUUID().toString(),memory.id(),memory.revision(),"SOURCE_REAUTHORIZED",now());
+    }
     public void lockOwner(String tenant,String owner) {
         jdbc.update("INSERT IGNORE INTO memory_owners(tenant_id,owner_id) VALUES (?,?)",tenant,owner);
         jdbc.queryForList("SELECT owner_id FROM memory_owners WHERE tenant_id=? AND owner_id=? FOR UPDATE",tenant,owner);
