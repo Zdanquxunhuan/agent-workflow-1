@@ -48,6 +48,12 @@ public class ChatAuditService {
         this.auditWriter = auditWriter;
     }
 
+    /**
+     * 创建审计任务；taskId 是三种入口共用的“业务审计锚点”。
+     *
+     * <p>并发重试由数据库唯一约束裁决：同一个幂等键只有一个调用能创建成功，
+     * 其他调用会拿到已存在的任务并返回 {@code reused=true}，调用方应直接重放而不是再调模型。
+     */
     @org.springframework.transaction.annotation.Transactional(transactionManager="workflowTransactionManager")
     public ChatSession start(String userId, UserRole role, String request,
                              String idempotencyKey, String traceId) {
@@ -105,6 +111,7 @@ public class ChatAuditService {
         audit(task,session.traceId(),"DIALOGUE_WAITING_INPUT",session.userId(),null,"Execution suspended for user input",Map.of("field",field));
     }
 
+    /** 把最终答案写回任务并推进到 SUCCEEDED；通常与运行 publish 在同一事务里提交。 */
     public void complete(ChatSession session, DeepSeekToolCallingService.ToolChatResult result) {
         AgentTask task = tasks.require(session.taskId());
         ensureRunning(task, session.traceId(), session.userId());
@@ -116,6 +123,7 @@ public class ChatAuditService {
                 "Chat task completed", Map.of("entrypoint", "agent.chat"));
     }
 
+    /** 失败收尾：只记录安全化的错误码和消息，不把内部异常细节暴露给客户端。 */
     public void fail(ChatSession session, RuntimeException exception) {
         AgentTask task = tasks.require(session.taskId());
         if (!task.status().terminal()) {
@@ -129,6 +137,7 @@ public class ChatAuditService {
                 "Read-only chat failed", Map.of("code", code));
     }
 
+    /** 重放已完成答案前重新校验 owner、记忆和知识来源权限，避免返回已撤权内容。 */
     public DeepSeekToolCallingService.ToolChatResult replay(ChatSession session) {
         AgentTask task = tasks.require(session.taskId());
         com.yu.agent.workflow.security.TenantIdentity.require(task.tenantId());

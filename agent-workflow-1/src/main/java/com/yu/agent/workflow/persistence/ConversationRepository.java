@@ -10,6 +10,15 @@ import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * 会话持久化。
+ *
+ * <p>整条会话以 JSON 快照保存，revision 是乐观锁版本：save 必须携带 previous，
+ * 只有数据库中的 revision 仍等于 previous.revision 时更新才会成功。
+ *
+ * <p>这样两个实例或两个标签页同时写时，只有一个能提交，另一个收到 CONFLICT；
+ * 迟到的模型答案也不会覆盖用户已经做出的取消/删除。
+ */
 @Repository
 public class ConversationRepository {
     private final JdbcTemplate jdbc;
@@ -23,6 +32,10 @@ public class ConversationRepository {
         else jdbc.update("INSERT INTO conversations(id,tenant_id,owner_id,revision,expires_at,state_json) VALUES (?,?,?,?,?,?)",
                 value.id(), value.tenantId(), value.owner(), value.revision(), value.expiresAt().getEpochSecond(), encode(value));
     }
+    /**
+     * 读取会话；已删除、已过期、租户不匹配都统一返回 NOT_FOUND，
+     * 不暴露“存在但不属于你”这种信息。
+     */
     public Conversation require(String id, String tenant) {
         Conversation value;
         if (jdbc == null) value = memory.get(id);
@@ -34,6 +47,11 @@ public class ConversationRepository {
             throw BusinessException.of("NOT_FOUND", "Conversation does not exist or has expired");
         return value;
     }
+    /**
+     * CAS 保存：先做本地一致性检查，再用 {@code WHERE revision=?} 做跨实例乐观锁。
+     *
+     * <p>更新行数为 0 说明数据库里的会话已经被别人改过（或过期），调用方应重新加载后重试。
+     */
     public void save(Conversation previous, Conversation next) {
         if (!previous.expiresAt().isAfter(Instant.now())) throw BusinessException.of("NOT_FOUND", "Conversation expired");
         if (next.revision() != previous.revision() + 1 || !previous.id().equals(next.id())
@@ -44,6 +62,7 @@ public class ConversationRepository {
                     next.revision(), encode(next), previous.id(), previous.tenantId(), previous.revision(), Instant.now().getEpochSecond()) == 1;
         if (!changed) throw BusinessException.of("CONFLICT", "Conversation changed; reload before retrying");
     }
+    /** 只返回本人拥有或作为参与者被邀请的会话；SQL 粗筛后再在内存中做一次精确校验。 */
     public List<Conversation> list(String tenant, String actor) {
         List<Conversation> values = jdbc == null ? List.copyOf(memory.values()) : jdbc.queryForList(
                 "SELECT state_json FROM conversations WHERE tenant_id=? AND expires_at>? AND JSON_EXTRACT(state_json,'$.deleted')=false AND (owner_id=? OR JSON_CONTAINS(state_json,JSON_QUOTE(?),'$.participants')) ORDER BY expires_at DESC LIMIT 50",

@@ -17,6 +17,16 @@ import java.util.concurrent.*;
  * expired identity, exhausted deadline or budget overrun interrupts the work at the next boundary instead of
  * after it finishes.
  */
+/**
+ * 单次运行的线程级守卫。
+ *
+ * <p>三种入口最终都会在 RuntimeService.execute 中安装一个 RunScope；
+ * 之后模型循环、工具调用、会话保存、答案发布都通过 {@link #checkpoint()} 共享同一套
+ * 取消/超时/JWT 过期/预算检查。
+ *
+ * <p>ThreadLocal 保证一个执行线程只属于一个运行；嵌套安装会被拒绝，
+ * 否则内层运行会遮蔽外层的身份和截止时间。
+ */
 public final class RunScope implements AutoCloseable {
     /**
      * One scope per thread; nested installation is rejected because it would hide the outer run's identity.

@@ -59,20 +59,43 @@ public class RuntimeLedger {
         return jdbc.queryForObject("SELECT CAST(UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3))*1000 AS UNSIGNED)", Long.class);
     }
 
+    /** 普通运行的开单入口：一次性问答（conversation=null）或会话消息（conversation=会话 id）。 */
     public Open open(AuthenticatedUser user, String key, String conversation, Object request, long identityExpires) {
         return open(user, key, conversation, request, identityExpires, null, null);
     }
 
+    /**
+     * 对话型运行的开单入口。
+     *
+     * <p>除了普通运行字段，还会写入第 0 版输入（原始问题）、计划事件，以及澄清/重规划上限。
+     */
     public Open openDialogue(AuthenticatedUser user, String key, String message, long identityExpires, DialogueSettings dialogue) {
         if (message == null || message.isBlank() || message.length() > 2000) throw RunScope.error("INVALID_ARGUMENT");
         return open(user, key, null, Map.of("message", message), identityExpires, dialogue, message);
     }
 
+    /**
+     * 开单核心。
+     *
+     * <p>一次事务内完成：
+     * <ol>
+     *   <li>校验幂等键和租户；</li>
+     *   <li>计算请求哈希，识别“同 key 不同内容”；</li>
+     *   <li>按入口类型查重，命中则复用原运行单；</li>
+     *   <li>限制同一用户同时活跃的运行数；</li>
+     *   <li>写入 agent_runs，并冻结截止时间、币种和费用/Token 上限；</li>
+     *   <li>对话型运行额外写第 0 版输入和 plan_created 事件。</li>
+     * </ol>
+     *
+     * @param entrypoint "chat"、"conversation:{id}" 或 "dialogue"，决定幂等作用域
+     */
     private Open open(AuthenticatedUser user, String key, String conversation, Object request, long identityExpires, DialogueSettings dialogue, String message) {
         if (key == null || !key.matches("[A-Za-z0-9_-]{1,80}") || !user.userId().matches("[A-Za-z0-9._@-]{1,200}"))
             throw RunScope.error("INVALID_ARGUMENT");
         if (!settings.primary.tenants().contains(user.tenantId())) throw RunScope.error("FORBIDDEN");
+        // 幂等作用域：一次性问答全局用 chat；会话按 conversation:id 隔离；对话型运行单独用 dialogue。
         String entry = dialogue != null ? "dialogue" : conversation == null ? "chat" : "conversation:" + conversation;
+        // 请求哈希用于识别“同一个 key 却被用来提交了不同内容”的冲突。
         String hash;
         try {
             hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(json.writeValueAsBytes(request)));
@@ -82,6 +105,7 @@ public class RuntimeLedger {
         String digest = hash;
         return tx.execute(status -> {
             long time = now();
+            // 运行不能比 JWT 活得更久；两者取较早的截止时间。
             long end = Math.min(time + settings.seconds * 1000L, identityExpires);
             if (end <= time + 1000) throw RunScope.error("RUN_IDENTITY_EXPIRED");
             java.sql.Date day = java.sql.Date.valueOf(java.time.Instant.ofEpochMilli(time).atOffset(java.time.ZoneOffset.UTC).toLocalDate());
@@ -131,6 +155,7 @@ public class RuntimeLedger {
         });
     }
 
+    /** 读取运行单时强制带 tenant_id + owner_id，防止横向越权；查不到统一返回 NOT_FOUND。 */
     public Map<String, Object> owned(String id, AuthenticatedUser user) {
         var rows = jdbc.queryForList("SELECT * FROM agent_runs WHERE id=? AND tenant_id=? AND owner_id=?", id, user.tenantId(), user.userId());
         if (rows.isEmpty()) throw RunScope.error("NOT_FOUND");
@@ -141,6 +166,12 @@ public class RuntimeLedger {
         return jdbc.queryForMap("SELECT * FROM agent_runs WHERE id=?", id);
     }
 
+    /**
+     * 返回给客户端的运行快照。
+     *
+     * <p>处于 WAITING_INPUT 时额外附带面向用户的问题文本；费用字段始终声明为“估算”，
+     * 不代表供应商最终账单。
+     */
     public Map<String, Object> describe(String id, AuthenticatedUser user) {
         var r = owned(id, user);
         Map<String, Object> result = new LinkedHashMap<>();
@@ -164,6 +195,11 @@ public class RuntimeLedger {
         return jdbc.queryForList("SELECT id,model_alias,model_name,route_reason,price_version,currency,status,code,usage_source,reserved_input,reserved_output,input_tokens,output_tokens,accounted_micros,started_at,ended_at FROM agent_model_attempts WHERE run_id=? ORDER BY started_at,id", id);
     }
 
+    /**
+     * 抢占运行：QUEUED → RUNNING 的 CAS。
+     *
+     * <p>只有未被取消、尚未超时的 QUEUED 工单能成功；重复执行或已被别的实例抢走都会返回 false。
+     */
     public boolean claim(String id) {
         return tx.execute(s -> {
             long time = now();
@@ -186,6 +222,12 @@ public class RuntimeLedger {
             throw RunScope.error("RUN_BUDGET_EXCEEDED");
     }
 
+    /**
+     * 请求取消。
+     *
+     * <p>QUEUED/RUNNING 只打取消标记，由 worker 在下一个 checkpoint 自行收尾；
+     * WAITING_INPUT 没有 worker 在等，直接置为 CANCELLED 并写终态事件。
+     */
     public void cancel(String id, AuthenticatedUser user) {
         owned(id, user);
         tx.executeWithoutResult(s -> {
@@ -205,6 +247,11 @@ public class RuntimeLedger {
             cancel(id, user);
     }
 
+    /**
+     * 把审计任务绑定到运行单。
+     *
+     * <p>JOIN 条件强制 task 与 run 同租户、同 owner、入口为 chat，防止把别人的任务挂到本运行上。
+     */
     public void bindTask(String id, String task) {
         if (jdbc.update("UPDATE agent_runs r JOIN tasks t ON t.id=? AND t.tenant_id=r.tenant_id AND t.user_id=r.owner_id AND t.entrypoint='chat' SET r.task_id=? WHERE r.id=? AND r.status='RUNNING' AND (r.task_id IS NULL OR r.task_id=?)", task, task, id, task) != 1)
             throw RunScope.error("RUN_NOT_ACTIVE");
@@ -228,6 +275,12 @@ public class RuntimeLedger {
                               RuntimeSettings.Model model) {
     }
 
+    /**
+     * 为一次模型调用预留预算。
+     *
+     * <p>锁顺序固定为 wallet → run → attempt，避免不同入口交叉加锁造成死锁；
+     * 同时检查运行总额、日额度和尝试次数，任何一项不够都在调用供应商前失败。
+     */
     public Reservation reserve(String id, RuntimeSettings.Model model, long input, String reason, boolean fallback) {
         long output = model.maxOutput(), cost = model.cost(input, output), tokens = Math.addExact(input, output);
         return tx.execute(s -> {
@@ -266,6 +319,12 @@ public class RuntimeLedger {
                 accounted, reserved, r.get("tenant_id"), r.get("owner_id"), r.get("budget_day"), r.get("currency"));
     }
 
+    /**
+     * 结算一次模型调用。
+     *
+     * <p>有供应商 usage 就按实际值计费；没有就按预留值保守计入，绝不因为“用量未知”而少记费用。
+     * 迟到/重复的结算会因 attempt 已不是 STARTED 而直接返回，避免二次扣费。
+     */
     public void settle(Reservation reservation, Map<String, Object> metadata, String code) {
         tx.executeWithoutResult(s -> {
             var r = row(reservation.runId());
@@ -298,6 +357,12 @@ public class RuntimeLedger {
         }
     }
 
+    /**
+     * 运行收尾。
+     *
+     * <p>取消和超时优先于传入的异常码；成功前还要求预留费用/Token 已清零，
+     * 否则记为 RUN_ACCOUNTING_INCOMPLETE，避免“显示成功但账没算完”。
+     */
     public boolean finish(String id, String code) {
         return tx.execute(s -> {
             var r = jdbc.queryForMap("SELECT * FROM agent_runs WHERE id=? FOR UPDATE", id);
@@ -315,6 +380,11 @@ public class RuntimeLedger {
         });
     }
 
+    /**
+     * 成功发布：把业务写入（任务完成、会话 turn 保存）和运行 SUCCEEDED 放在同一个事务里。
+     *
+     * <p>发布前再次校验状态和截止时间，并要求预留费用已结清；任何一步失败都会整体回滚。
+     */
     public <T> T publish(String id, java.util.function.Supplier<T> action) {
         return tx.execute(s -> {
             var r = jdbc.queryForMap("SELECT * FROM agent_runs WHERE id=? FOR UPDATE", id);
@@ -390,6 +460,7 @@ public class RuntimeLedger {
         }
     }
 
+    /** 记录一次计划步骤（查询/观察/回答），必须在对话型运行且运行仍有效时写入。 */
     public void planStep(String id, String decision, String tool, String reason) {
         tx.executeWithoutResult(s -> {
             var r = jdbc.queryForMap("SELECT * FROM agent_runs WHERE id=? FOR UPDATE", id);
@@ -399,6 +470,11 @@ public class RuntimeLedger {
         });
     }
 
+    /**
+     * 重规划：计划版本 +1，并记录失败工具和原因（NO_EVIDENCE / NOT_FOUND）。
+     *
+     * <p>重规划次数有上限，防止模型在“查不到→改写→还查不到”之间无限循环。
+     */
     public void replan(String id, String tool, String reason) {
         tx.executeWithoutResult(s -> {
             var r = jdbc.queryForMap("SELECT * FROM agent_runs WHERE id=? FOR UPDATE", id);
@@ -412,20 +488,40 @@ public class RuntimeLedger {
         });
     }
 
+    /**
+     * 把运行挂起为 WAITING_INPUT。
+     *
+     * <p>语义是“执行暂停”，不是“失败”：
+     * <ul>
+     *   <li>审计 task 和运行单在同一个事务里进入 WAITING_INPUT；</li>
+     *   <li>挂起前要求预留费用已结清，避免把半笔账挂在等待态；</li>
+     *   <li>等待时间不消耗执行预算：剩余执行毫秒数被保存下来，恢复后继续用；</li>
+     *   <li>总生命周期仍受 chain_expires_at 限制，用户不能无限期不回复。</li>
+     * </ul>
+     *
+     * <p>挂起后 worker 直接返回，不会有一个线程一直阻塞等待用户。
+     *
+     * @param suspendTask 把业务侧任务同步改为 WAITING_INPUT 的动作；不能包含网络调用
+     */
     public void pause(String id, String field, Runnable suspendTask) {
+        // 字段白名单校验：只允许 orderId / ticketId / details。
         DialogueScope.question(field);
         tx.executeWithoutResult(s -> {
             var r = jdbc.queryForMap("SELECT * FROM agent_runs WHERE id=? FOR UPDATE", id);
             long time = now();
             validate(r, time);
+            // 澄清次数上限，防止模型反复要资料把用户拖死。
             if (!flag(r, "dialogue_enabled") || number(r, "dialogue_revision") >= number(r, "max_clarifications"))
                 throw RunScope.error("DIALOGUE_CLARIFICATION_LIMIT");
+            // 挂起前必须先把本次模型调用的预留费用结清，否则等待态会带着未结算的账。
             if (number(r, "reserved_tokens") != 0 || number(r, "reserved_micros") != 0)
                 throw RunScope.error("RUN_ACCOUNTING_INCOMPLETE");
             suspendTask.run(); // Task WAITING_INPUT and run WAITING_INPUT commit atomically, no network here.
             time = now();
             validate(r, time);
+            // 只扣“真正执行”的时间；用户等待的时间不计入 execution_remaining_ms。
             long remaining = number(r, "execution_remaining_ms") - Math.max(0, time - number(r, "segment_opened_at"));
+            // 等待截止时间取 min(整条对话链寿命, 本次允许等待时长)。
             long waitEnd = Math.min(number(r, "chain_expires_at"), time + number(r, "wait_seconds") * 1000L);
             if (remaining <= 0 || waitEnd <= time) throw RunScope.error("RUN_DEADLINE");
             jdbc.update("UPDATE agent_runs SET status='WAITING_INPUT',clarification_field=?,deadline_at=?,execution_remaining_ms=? WHERE id=?", field, waitEnd, remaining, id);
@@ -433,15 +529,32 @@ public class RuntimeLedger {
         });
     }
 
+    /**
+     * 接受一条补充输入，并把运行重新排队。
+     *
+     * <p>这是一个“带条件的状态迁移”，所有条件都在同一个事务和行锁内检查：
+     * <ul>
+     *   <li>运行必须是 WAITING_INPUT，且没有被取消；</li>
+     *   <li>{@code revision} 必须等于当前 dialogue_revision，{@code field} 必须等于当前待补字段；</li>
+     *   <li>等待截止时间、整条对话链寿命和 JWT 都还没过期；</li>
+     *   <li>租户和币种没有变化；</li>
+     *   <li>同一个 Idempotency-Key 只能对应同一条输入。</li>
+     * </ul>
+     *
+     * <p>成功后写入 revision+1 的输入，运行回到 QUEUED，plan_version+1，并记录
+     * USER_INPUT 的计划修订事件。返回值只表示“是否新受理”：false 表示幂等重试，不应再次入队。
+     */
     public boolean resumeDialogue(String id, long revision, String field, String value, String key, AuthenticatedUser user, long identityExpires) {
         if (key == null || !key.matches("[A-Za-z0-9_-]{1,80}") || value == null || value.isBlank() || value.length() > 2000)
             throw RunScope.error("INVALID_ARGUMENT");
+        // 字段白名单；标识类字段还限制字符集，避免把奇怪内容带进工具参数。
         DialogueScope.question(field);
         if (!"details".equals(field) && !value.matches("[A-Za-z0-9_-]{1,80}")) throw RunScope.error("INVALID_ARGUMENT");
         owned(id, user);
         return tx.execute(s -> {
             var r = jdbc.queryForMap("SELECT * FROM agent_runs WHERE id=? FOR UPDATE", id);
             if (!flag(r, "dialogue_enabled")) throw RunScope.error("DIALOGUE_REQUIRED");
+            // 幂等：同一个 key 已经提交过，只允许“revision/field/value 完全一致”的重试。
             var existing = jdbc.queryForList("SELECT * FROM agent_dialogue_inputs WHERE run_id=? AND request_key=?", id, key);
             if (!existing.isEmpty()) {
                 var old = existing.get(0);
@@ -450,6 +563,7 @@ public class RuntimeLedger {
                 return false;
             }
             long time = now();
+            // 乐观状态校验：旧页面、错字段、已取消或已恢复过的输入都会被拒绝。
             if (!"WAITING_INPUT".equals(r.get("status")) || flag(r, "cancel_requested") || number(r, "dialogue_revision") != revision
                     || !field.equals(r.get("clarification_field"))) throw RunScope.error("CONFLICT");
             if (number(r, "deadline_at") <= time || number(r, "chain_expires_at") <= time)
@@ -457,9 +571,11 @@ public class RuntimeLedger {
             if (identityExpires <= time + 1000) throw RunScope.error("RUN_IDENTITY_EXPIRED");
             if (!settings.primary.tenants().contains(user.tenantId())) throw RunScope.error("FORBIDDEN");
             if (!settings.currency.equals(r.get("currency"))) throw RunScope.error("RUN_CURRENCY_CHANGED");
+            // 恢复后的截止时间同时受剩余执行时间、对话链寿命和 JWT 过期时间约束。
             long end = Math.min(Math.min(time + number(r, "execution_remaining_ms"), number(r, "chain_expires_at")), identityExpires);
             if (end <= time + 1000) throw RunScope.error("RUN_DEADLINE");
             jdbc.update("INSERT INTO agent_dialogue_inputs(run_id,revision,request_key,field_name,input_text,created_at) VALUES (?,?,?,?,?,?)", id, revision + 1, key, field, value, time);
+            // 同一个 run 回到 QUEUED；dialogue_revision 和 plan_version 各自 +1，保留输入链和计划链。
             jdbc.update("UPDATE agent_runs SET status='QUEUED',dialogue_revision=dialogue_revision+1,plan_version=plan_version+1,clarification_field=NULL,deadline_at=?,segment_opened_at=?,instance_id=? WHERE id=?", end, time, instance, id);
             eventInside(id, "plan_revised", Map.of("version", number(r, "plan_version") + 1, "parentVersion", number(r, "plan_version"), "reason", "USER_INPUT", "next", "REAUTHORIZE_AND_QUERY_FRESH"), time);
             eventInside(id, "queued", Map.of("revision", revision + 1), time);
@@ -467,11 +583,13 @@ public class RuntimeLedger {
         });
     }
 
+    /** 按 revision 顺序返回整条输入链：第 0 条是原始问题，之后是用户补充。 */
     public List<Map<String, Object>> dialogueInputs(String id, AuthenticatedUser user) {
         if (!flag(owned(id, user), "dialogue_enabled")) throw RunScope.error("DIALOGUE_REQUIRED");
         return jdbc.queryForList("SELECT revision,field_name,input_text FROM agent_dialogue_inputs WHERE run_id=? ORDER BY revision", id);
     }
 
+    /** 计划时间线：创建、修订、查询、观察、澄清、终态，用于前端展示“为什么这样走”。 */
     public List<Map<String, Object>> plans(String id, AuthenticatedUser user) {
         if (!flag(owned(id, user), "dialogue_enabled")) throw RunScope.error("DIALOGUE_REQUIRED");
         return jdbc.queryForList("SELECT id,event_type,payload_json,created_at FROM agent_run_events WHERE run_id=? AND event_type IN ('plan_created','plan_revised','plan_step','clarification_required','terminal') ORDER BY id LIMIT 200", id);
