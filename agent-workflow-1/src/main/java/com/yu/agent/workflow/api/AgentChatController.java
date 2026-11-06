@@ -31,21 +31,21 @@ public class AgentChatController {
 
     @PostMapping("/chat")
     public ApiResponse<DeepSeekToolCallingService.ToolChatResult> chat(@Valid @RequestBody ChatRequest request,
-                                                                        @AuthenticationPrincipal Jwt jwt,
-                                                                        @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
-                                                                        @RequestHeader(value = "X-Trace-Id", required = false) String traceId) {
+                                                                       @AuthenticationPrincipal Jwt jwt,
+                                                                       @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+                                                                       @RequestHeader(value = "X-Trace-Id", required = false) String traceId) {
         AuthenticatedUser user = users.resolve(jwt);
         String actualTraceId = traceId == null || traceId.isBlank() ? UUID.randomUUID().toString() : traceId;
-        if(runtime!=null && runtime.getIfAvailable()!=null) {
-            String key=idempotencyKey==null || idempotencyKey.isBlank()?UUID.randomUUID().toString():idempotencyKey;
-            var result=runtime.getObject().synchronous(new com.yu.agent.workflow.runtime.RuntimeService.Request(request.message(),null,0),key,user,
-                    runId->executeChat(request,user,"run-"+runId,runId));
-            return ApiResponse.ok(result,actualTraceId);
+        if (runtime != null && runtime.getIfAvailable() != null) {
+            String key = idempotencyKey == null || idempotencyKey.isBlank() ? UUID.randomUUID().toString() : idempotencyKey;
+            var result = runtime.getObject().synchronous(new com.yu.agent.workflow.runtime.RuntimeService.Request(request.message(), null, 0), key, user,
+                    runId -> executeChat(request, user, "run-" + runId, runId));
+            return ApiResponse.ok(result, actualTraceId);
         }
-        return ApiResponse.ok(executeChat(request,user,idempotencyKey,actualTraceId),actualTraceId);
+        return ApiResponse.ok(executeChat(request, user, idempotencyKey, actualTraceId), actualTraceId);
     }
 
-    private DeepSeekToolCallingService.ToolChatResult executeChat(ChatRequest request,AuthenticatedUser user,String idempotencyKey,String actualTraceId) {
+    private DeepSeekToolCallingService.ToolChatResult executeChat(ChatRequest request, AuthenticatedUser user, String idempotencyKey, String actualTraceId) {
         ChatAuditService.ChatSession session = audit.start(user.userId(), user.role(), request.message(), idempotencyKey, actualTraceId);
         if (session.reused()) {
             return audit.replay(session);
@@ -53,17 +53,22 @@ public class AgentChatController {
         try {
             DeepSeekToolCallingService.ToolChatResult result = service.chat(
                     user.userId(), user.role(), request.message(), actualTraceId, session.taskId(), audit.listener(session));
-            return com.yu.agent.workflow.runtime.RunScope.publish(()->{audit.complete(session, result);return result;});
+            return com.yu.agent.workflow.runtime.RunScope.publish(() -> {
+                audit.complete(session, result);
+                return result;
+            });
         } catch (RuntimeException ex) {
             audit.fail(session, ex);
             throw ex;
         }
     }
 
-    public record ChatRequest(@NotBlank @Size(max = 2000) String message) {}
+    public record ChatRequest(@NotBlank @Size(max = 2000) String message) {
+    }
+
     @GetMapping("/runtime")
-    public ApiResponse<java.util.Map<String,Object>> runtime() {
-        return ApiResponse.ok(java.util.Map.of("enabled",runtime!=null && runtime.getIfAvailable()!=null,
-                "streamMode","progress-only","disconnectPolicy","observe-or-reconnect; explicit cancel stops execution"),UUID.randomUUID().toString());
+    public ApiResponse<java.util.Map<String, Object>> runtime() {
+        return ApiResponse.ok(java.util.Map.of("enabled", runtime != null && runtime.getIfAvailable() != null,
+                "streamMode", "progress-only", "disconnectPolicy", "observe-or-reconnect; explicit cancel stops execution"), UUID.randomUUID().toString());
     }
 }

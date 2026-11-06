@@ -45,8 +45,11 @@ public class AgentApplicationService {
     private final PromptInjectionGuard promptInjectionGuard;
     private final ResultEvaluator resultEvaluator;
     private KnowledgeSearchClient knowledge;
+
     @org.springframework.beans.factory.annotation.Autowired
-    public void knowledge(KnowledgeSearchClient knowledge) { this.knowledge = knowledge; }
+    public void knowledge(KnowledgeSearchClient knowledge) {
+        this.knowledge = knowledge;
+    }
 
     private final int maxSteps;
     private final long deadlineSeconds;
@@ -74,7 +77,8 @@ public class AgentApplicationService {
      * tool is allowed to execute.
      */
     public AgentTaskView create(String userId, UserRole role, String request, String idempotencyKey, String traceId) {
-        if (userId == null || userId.isBlank()) throw BusinessException.of("INVALID_ARGUMENT", "Authenticated user id is required");
+        if (userId == null || userId.isBlank())
+            throw BusinessException.of("INVALID_ARGUMENT", "Authenticated user id is required");
         // Let the repository unique constraint settle concurrent retries. A
         // read-then-insert pre-check would race across instances.
         AgentTask candidate = new AgentTask(UUID.randomUUID().toString(), userId, role, request, idempotencyKey, Instant.now(), com.yu.agent.workflow.security.TenantIdentity.current(), "tasks");
@@ -135,7 +139,8 @@ public class AgentApplicationService {
                 throw BusinessException.of("FORBIDDEN", "Requesters cannot approve their own task");
             }
             if (task.status() == TaskStatus.SUCCEEDED || task.status() == TaskStatus.WAITING_EXTERNAL
-                    || task.status() == TaskStatus.UNKNOWN_SIDE_EFFECT) return authorizedView(task, currentReader(task.userId()));
+                    || task.status() == TaskStatus.UNKNOWN_SIDE_EFFECT)
+                return authorizedView(task, currentReader(task.userId()));
             if (task.status() != TaskStatus.WAITING_APPROVAL) {
                 throw BusinessException.of("INVALID_STATE", "Task is not waiting for approval");
             }
@@ -177,8 +182,8 @@ public class AgentApplicationService {
         if (!task.userId().equals(actor) && role != UserRole.ADMIN)
             throw BusinessException.of("FORBIDDEN", "Only the task owner can cancel it");
         // Runtime owns the cancellation fence. A second task-only path could race with final publication.
-        if(runtimeLedger!=null && runtimeLedger.getIfAvailable()!=null && runtimeLedger.getObject().managesTask(taskId))
-            throw BusinessException.of("CONFLICT","Cancel this task through /api/v1/agent/runs/{runId}/cancel");
+        if (runtimeLedger != null && runtimeLedger.getIfAvailable() != null && runtimeLedger.getObject().managesTask(taskId))
+            throw BusinessException.of("CONFLICT", "Cancel this task through /api/v1/agent/runs/{runId}/cancel");
         synchronized (task) {
             if (task.status().terminal()) return authorizedView(task, currentReader(task.userId()));
             if (task.status() == TaskStatus.WAITING_EXTERNAL || task.status() == TaskStatus.UNKNOWN_SIDE_EFFECT) {
@@ -251,8 +256,9 @@ public class AgentApplicationService {
 
     private AgentTaskView authorizedView(AgentTask task, String reader) {
         if (memoryGuard != null && memoryGuard.getIfAvailable() != null)
-            memoryGuard.getObject().validateTask(new ToolContext(reader,task.role(),task.id(),"read",task.tenantId()));
-        if (knowledge != null) knowledge.revalidateTask(new ToolContext(reader, task.role(), task.id(), "read", task.tenantId()));
+            memoryGuard.getObject().validateTask(new ToolContext(reader, task.role(), task.id(), "read", task.tenantId()));
+        if (knowledge != null)
+            knowledge.revalidateTask(new ToolContext(reader, task.role(), task.id(), "read", task.tenantId()));
         return task.view();
     }
 
